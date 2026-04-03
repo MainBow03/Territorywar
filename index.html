@@ -2,7 +2,7 @@
 <html lang="it">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <title>Territory War Online</title>
     
     <!-- Tailwind CSS -->
@@ -19,9 +19,11 @@
         /* Utility per nascondere le scrollbar ma permettere lo scroll */
         .scrollbar-hide::-webkit-scrollbar { display: none; }
         .scrollbar-hide { -ms-overflow-style: none; scrollbar-width: none; }
+        /* Evita selezione testo e menu contestuale nativo su tablet/mobile */
+        .no-select { -webkit-user-select: none; user-select: none; -webkit-touch-callout: none; }
     </style>
 </head>
-<body class="bg-slate-900 text-slate-100">
+<body class="bg-slate-900 text-slate-100 no-select">
 
     <div id="root"></div>
 
@@ -1002,6 +1004,11 @@
           const isGameEnded = room.status === 'finished' || room.status === 'match_finished';
           const [showResultsModal, setShowResultsModal] = useState(true);
 
+          // AGGIUNTA PER GESTIONE TOUCH (TABLET/SMARTPHONE)
+          const [showItemDesc, setShowItemDesc] = useState(null);
+          const touchTimer = useRef(null);
+          const isLongPress = useRef(false);
+
           useEffect(() => {
             if (isGameEnded) setShowResultsModal(true);
           }, [isGameEnded]);
@@ -1221,6 +1228,9 @@
             const newPlayable = getPlayableTiles(user.uid, newBoard, boardSize, room.config.invasionMode);
             if (room.movesLeft - 1 === 0 || newPlayable.length === 0) {
                 await updateDoc(boardRef, { actionState: 'items_or_end' });
+            }
+          };
+
           const endTurnBtn = () => { initAudio(); nextTurn(); };
 
           const useItem = async (slotIdx, itemId) => {
@@ -1508,7 +1518,7 @@
                                               {ITEMS.find(i => i.id === cell.item)?.icon}
                                           </span>
                                       )}
-                                      {isPlayable && <div className="absolute inset-0 bg-white/20 rounded-sm hover:bg-white/40"></div>}
+                                      {isPlayable && <div className="absolute inset-0 bg-white/20 rounded-sm hover:bg-white/40 pointer-events-none"></div>}
                                   </div>
                               );
                           })}
@@ -1604,14 +1614,33 @@
                                                       <button 
                                                           key={slot}
                                                           disabled={!item || (room.actionState === 'rolling' && item?.id === 'jackpot')} 
-                                                          onClick={() => useItem(slot, itemId)}
+                                                          onClick={(e) => {
+                                                              if (isLongPress.current) { e.preventDefault(); isLongPress.current = false; return; }
+                                                              useItem(slot, itemId);
+                                                          }}
+                                                          onContextMenu={(e) => e.preventDefault()}
+                                                          onTouchStart={() => {
+                                                              isLongPress.current = false;
+                                                              touchTimer.current = setTimeout(() => {
+                                                                  isLongPress.current = true;
+                                                                  setShowItemDesc(slot);
+                                                              }, 400);
+                                                          }}
+                                                          onTouchEnd={(e) => {
+                                                              clearTimeout(touchTimer.current);
+                                                              if (isLongPress.current) e.preventDefault();
+                                                              setShowItemDesc(null);
+                                                          }}
+                                                          onTouchMove={() => { clearTimeout(touchTimer.current); setShowItemDesc(null); }}
+                                                          onMouseLeave={() => setShowItemDesc(null)}
+                                                          onMouseEnter={() => setShowItemDesc(slot)}
                                                           className={`flex-1 h-14 rounded-lg flex items-center justify-center text-2xl border transition-all relative group
                                                               ${item ? 'bg-slate-700 border-slate-500 hover:border-white cursor-pointer hover:bg-slate-600' : 'bg-slate-800/50 border-slate-700 border-dashed cursor-not-allowed'}
                                                           `}
                                                       >
                                                           {item ? item.icon : ''}
                                                           {item && (
-                                                              <div className="absolute bottom-full mb-2 hidden group-hover:block w-40 bg-black text-white text-xs p-2 rounded shadow-xl z-50 text-center pointer-events-none">
+                                                              <div className={`absolute bottom-full mb-2 ${showItemDesc === slot ? 'block' : 'hidden group-hover:block'} w-40 bg-black text-white text-xs p-2 rounded shadow-xl z-50 text-center pointer-events-none`}>
                                                                   <strong className="block mb-1">{item.n}</strong>
                                                                   {item.desc}
                                                               </div>
