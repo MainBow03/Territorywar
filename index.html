@@ -1,1538 +1,1555 @@
-import React, { useState, useEffect, useMemo, useRef } from 'react';
-import { initializeApp } from 'firebase/app';
-import { getAnalytics } from 'firebase/analytics';
-import { getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged } from 'firebase/auth';
-import { getFirestore, doc, setDoc, getDoc, updateDoc, onSnapshot, collection } from 'firebase/firestore';
-
-// --- CONFIGURAZIONE FIREBASE ---
-const firebaseConfig = {
-  apiKey: "AIzaSyCHWp-S6y_FR0v4n-PQP43RkJVqt6DxdJ4",
-  authDomain: "territory-war-4b0ae.firebaseapp.com",
-  projectId: "territory-war-4b0ae",
-  storageBucket: "territory-war-4b0ae.firebasestorage.app",
-  messagingSenderId: "643274521032",
-  appId: "1:643274521032:web:5d0c36a8dd7476873ce8fd",
-  measurementId: "G-71HCVW3SWE"
-};
-
-const app = initializeApp(firebaseConfig);
-const analytics = typeof window !== 'undefined' ? getAnalytics(app) : null;
-const auth = getAuth(app);
-const db = getFirestore(app);
-const appId = typeof __app_id !== 'undefined' ? __app_id : 'territory-war-app';
-
-// --- DATI PERSONAGGI ---
-const CHARACTERS = [
-  // Disventure Camp
-  { id: 'dc1', cat: 'Disventure Camp', n: 'Tom', i: 'https://i.pinimg.com/736x/db/d4/2a/dbd42a105be5cd57fa6a0ed9a8ab7df8.jpg' },
-  { id: 'dc2', cat: 'Disventure Camp', n: 'Jake', i: 'https://i.pinimg.com/736x/09/cb/93/09cb935d20ccac3df1d95df305e3ff75.jpg' },
-  { id: 'dc3', cat: 'Disventure Camp', n: 'Aiden', i: 'https://i.pinimg.com/736x/5a/d2/c3/5ad2c35deb3dccf1b841c7ef0b90d20d.jpg' },
-  { id: 'dc4', cat: 'Disventure Camp', n: 'Yul', i: 'https://i.pinimg.com/736x/a5/30/4d/a5304da542508a1b573db7e2dd8faed0.jpg' },
-  { id: 'dc5', cat: 'Disventure Camp', n: 'Ted', i: 'https://i.pinimg.com/736x/5c/f9/45/5cf945a3ea7f6799a3f09ee12f6a8b52.jpg' },
-  { id: 'dc6', cat: 'Disventure Camp', n: 'Spencer', i: 'https://i.pinimg.com/736x/1a/a6/94/1aa69432bc0438f9a30f595ff4693afa.jpg' },
-  { id: 'dc7', cat: 'Disventure Camp', n: 'Gabby', i: 'https://i.pinimg.com/736x/a9/02/f6/a902f64bb2fad9ea7c0ef3fb8378eefb.jpg' },
-  { id: 'dc8', cat: 'Disventure Camp', n: 'Miriam', i: 'https://i.pinimg.com/736x/20/32/bf/2032bf76dbdf63b46ae9700a0f110e96.jpg' },
-  { id: 'dc9', cat: 'Disventure Camp', n: 'Fiore', i: 'https://i.pinimg.com/736x/97/ed/43/97ed439990f0819b9441ea5503d36bf9.jpg' },
-  { id: 'dc10', cat: 'Disventure Camp', n: 'Ashley', i: 'https://i.pinimg.com/736x/f4/12/54/f41254f60d4c222cf59e1abbb4b0ae99.jpg' },
-  { id: 'dc11', cat: 'Disventure Camp', n: 'Tess', i: 'https://i.pinimg.com/736x/b4/0c/3a/b40c3ac96de25749753dee44ecb90196.jpg' },
-  { id: 'dc12', cat: 'Disventure Camp', n: 'Rosa Maria', i: 'https://i.pinimg.com/736x/43/26/f6/4326f60c5e78b7f88d54fdb7baa60881.jpg' },
-  // Gumball
-  { id: 'g1', cat: 'Gumball', n: 'Gumball', i: 'https://i.pinimg.com/736x/af/61/0f/af610f55e819f4bd3f37e5001a2b19ee.jpg' },
-  { id: 'g2', cat: 'Gumball', n: 'Darwin', i: 'https://i.pinimg.com/1200x/5a/cf/9c/5acf9c886678411963046b04051e610e.jpg' },
-  { id: 'g3', cat: 'Gumball', n: 'Anais', i: 'https://i.pinimg.com/736x/68/6f/3c/686f3c8f998bf2d90e5e4c294e007788.jpg' },
-  { id: 'g4', cat: 'Gumball', n: 'Nicole', i: 'https://i.pinimg.com/736x/81/24/e4/8124e43da43e1d06dcdbca15f22a0cd9.jpg' },
-  { id: 'g5', cat: 'Gumball', n: 'Sig.ra Robinson', i: 'https://i.pinimg.com/736x/ac/31/60/ac3160d1a5a50d7e95147b228e76f75c.jpg' },
-  { id: 'g6', cat: 'Gumball', n: 'Barbara', i: 'https://i.pinimg.com/736x/08/38/28/0838283d8d82e79706028350d500bd7a.jpg' },
-  { id: 'g7', cat: 'Gumball', n: 'Richard', i: 'https://i.pinimg.com/736x/8d/81/af/8d81af8b199107f03be8495b16a40f45.jpg' },
-  // I Simpson
-  { id: 's1', cat: 'I Simpson', n: 'Homer', i: 'https://i.pinimg.com/736x/f4/db/88/f4db8845d2dd534b3ff4a259edd2dce8.jpg' },
-  { id: 's2', cat: 'I Simpson', n: 'Lisa', i: 'https://i.pinimg.com/736x/81/68/de/8168de5a140ed669abfe5e2e4771b1b6.jpg' },
-  { id: 's3', cat: 'I Simpson', n: 'Bart', i: 'https://i.pinimg.com/1200x/03/11/09/031109591c66397c76e7489d42f3127d.jpg' },
-  { id: 's4', cat: 'I Simpson', n: 'Marge', i: 'https://i.pinimg.com/736x/77/6d/41/776d41748c4c9ae5940d8a9b10db881a.jpg' },
-  { id: 's5', cat: 'I Simpson', n: 'Maggie', i: 'https://i.pinimg.com/736x/12/f7/17/12f7172ecf515a362b967146399c883b.jpg' },
-  // Spongebob
-  { id: 'sb1', cat: 'Spongebob', n: 'Spongebob', i: 'https://i.pinimg.com/736x/08/9d/56/089d562f45d59b2f7e37e643a5ebf927.jpg' },
-  { id: 'sb2', cat: 'Spongebob', n: 'Patrick', i: 'https://i.pinimg.com/736x/64/a3/f7/64a3f72a484c92329ba86e33263f2478.jpg' },
-  { id: 'sb3', cat: 'Spongebob', n: 'Sandy', i: 'https://i.pinimg.com/1200x/11/5b/0b/115b0b5b56f96879c6d0129a9f024373.jpg' },
-  { id: 'sb4', cat: 'Spongebob', n: 'Mr Krab', i: 'https://i.pinimg.com/736x/57/5f/6e/575f6e42df4f8a6af5f4e4eacc6c784b.jpg' },
-  { id: 'sb5', cat: 'Spongebob', n: 'Squiddi', i: 'https://i.pinimg.com/736x/f1/98/f3/f198f31f5a1d4f4e42c52a3026ca4137.jpg' },
-  { id: 'sb6', cat: 'Spongebob', n: 'Plankton', i: 'https://i.pinimg.com/736x/af/f1/8b/aff18ba41f798ebe95ae1809410cbec9.jpg' },
-  { id: 'sb7', cat: 'Spongebob', n: 'Karen', i: 'https://i.pinimg.com/1200x/38/5e/a1/385ea10631779320f61ab3f81e7124e9.jpg' },
-  { id: 'sb8', cat: 'Spongebob', n: 'Men Rey', i: 'https://i.pinimg.com/1200x/97/16/1f/97161f40d43175c69762eac74173978c.jpg' },
-  // SuperChicche
-  { id: 'pp1', cat: 'SuperChicche', n: 'Molli', i: 'https://i.pinimg.com/1200x/14/12/b6/1412b6e774e16d5fb3ae0ac58c6c17b4.jpg' },
-  { id: 'pp2', cat: 'SuperChicche', n: 'Dolli', i: 'https://i.pinimg.com/1200x/30/7c/ae/307cae771093aff04d01adc1c1b467c0.jpg' },
-  { id: 'pp3', cat: 'SuperChicche', n: 'Lolli', i: 'https://i.pinimg.com/1200x/72/80/df/7280df80dcb57cf22d5e1bcac2d7e179.jpg' },
-  { id: 'pp4', cat: 'SuperChicche', n: 'Mojo Jojo', i: 'https://i.pinimg.com/736x/dc/69/7c/dc697c889f2fe0341afe6e30b2a4a76f.jpg' },
-  // Duefantagenitori
-  { id: 'fop1', cat: 'Duefantagenitori', n: 'Timmy', i: 'https://i.pinimg.com/1200x/d4/63/5d/d4635d14bb9b3759f41138ecd2eb1957.jpg' },
-  { id: 'fop2', cat: 'Duefantagenitori', n: 'Cosmo', i: 'https://i.pinimg.com/736x/47/22/99/472299b4c669c052c662df1730403d83.jpg' },
-  { id: 'fop3', cat: 'Duefantagenitori', n: 'Wanda', i: 'https://i.pinimg.com/736x/99/87/b7/9987b79d555daf6e60f2c501064ac38f.jpg' },
-  { id: 'fop4', cat: 'Duefantagenitori', n: 'Vicky', i: 'https://i.pinimg.com/736x/60/c4/17/60c4178a696ba9ce13dd9cc6c93c6e67.jpg' },
-  { id: 'fop5', cat: 'Duefantagenitori', n: 'Poof', i: 'https://i.pinimg.com/736x/30/12/4f/30124fb9a8972916ed4e00f955b1fff1.jpg' },
-  { id: 'fop6', cat: 'Duefantagenitori', n: 'Pery', i: 'https://i.pinimg.com/736x/de/55/68/de5568d079e016f6dbebeb62a9002ae2.jpg' },
-  { id: 'fop7', cat: 'Duefantagenitori', n: 'Jorgen', i: 'https://i.pinimg.com/736x/dd/2f/53/dd2f53bc40b9918026bd5fa49f4cdf4d.jpg' },
-  { id: 'fop8', cat: 'Duefantagenitori', n: 'Tootie', i: 'https://i.pinimg.com/736x/4b/d8/68/4bd868be085f1e8d01d2d8f8629f94d0.jpg' },
-  // Cantanti
-  { id: 'sing1', cat: 'Cantanti', n: 'Ariana Grande', i: 'https://i.pinimg.com/736x/4c/45/33/4c4533750e250ed0b8e0e57753aa9017.jpg' },
-  { id: 'sing2', cat: 'Cantanti', n: 'Lady Gaga', i: 'https://i.pinimg.com/736x/59/02/68/5902680e38e45503a559fbd528268eab.jpg' },
-  { id: 'sing3', cat: 'Cantanti', n: 'Billie Eilish', i: 'https://i.pinimg.com/736x/eb/42/87/eb4287c2497f1220cfe6fe7aaf3b6b8e.jpg' },
-  // Principesse
-  { id: 'prin1', cat: 'Principesse', n: 'Rosalinda', i: 'https://i.pinimg.com/736x/da/87/05/da87056e17f0b24989898b059a1b0560.jpg' },
-  { id: 'prin2', cat: 'Principesse', n: 'Peach', i: 'https://i.pinimg.com/736x/98/65/39/986539a9ccd1408d51eb061df724377f.jpg' },
-  { id: 'prin3', cat: 'Principesse', n: 'Elsa', i: 'https://i.pinimg.com/1200x/2f/bb/8b/2fbb8ba8053726318534824cf1a455d8.jpg' },
-  { id: 'prin4', cat: 'Principesse', n: 'Biancaneve', i: 'https://i.pinimg.com/1200x/c0/c9/37/c0c9370bb94279706e63c9a3b9b8bc91.jpg' },
-  { id: 'prin5', cat: 'Principesse', n: 'Vanellope', i: 'https://i.pinimg.com/1200x/99/e6/d4/99e6d42b2285d52ce58b348517c21059.jpg' },
-  // American Dad
-  { id: 'ad1', cat: 'American Dad', n: 'Stan', i: 'https://i.pinimg.com/736x/10/00/32/100032f9cfa72f9934ec6ef9530014c4.jpg' },
-  { id: 'ad2', cat: 'American Dad', n: 'Francine', i: 'https://i.pinimg.com/736x/95/f1/5d/95f15df1ead09d7f486f597670339b99.jpg' },
-  { id: 'ad3', cat: 'American Dad', n: 'Hayley', i: 'https://i.pinimg.com/736x/ff/0a/68/ff0a68de85d1bd98e29be7c05860b437.jpg' },
-  { id: 'ad4', cat: 'American Dad', n: 'Roger', i: 'https://i.pinimg.com/1200x/26/68/1a/26681ade5ccae3524acf2a203e19b6ac.jpg' },
-  { id: 'ad5', cat: 'American Dad', n: 'Steve', i: 'https://i.pinimg.com/1200x/ad/b3/46/adb3465ea7efcf62537e95496d56a443.jpg' },
-  { id: 'ad6', cat: 'American Dad', n: 'Klaus', i: 'https://i.pinimg.com/1200x/e0/53/c9/e053c9dc6d78aee16290f21b89a44ed4.jpg' },
-  // Super Mario
-  { id: 'sm1', cat: 'Super Mario', n: 'Mario', i: 'https://i.pinimg.com/736x/be/2d/98/be2d98feb1899ffa3d713423b50cbb98.jpg' },
-  { id: 'sm2', cat: 'Super Mario', n: 'Luigi', i: 'https://i.pinimg.com/736x/ed/f2/f6/edf2f6063d11ab84570572a42beba223.jpg' },
-  { id: 'sm3', cat: 'Super Mario', n: 'Wario', i: 'https://i.pinimg.com/736x/d1/dc/2f/d1dc2f211895104743fce7407d5d90df.jpg' },
-  { id: 'sm4', cat: 'Super Mario', n: 'Waluigi', i: 'https://i.pinimg.com/736x/68/2b/61/682b611cb8b1b9eca045cc801e5ed25f.jpg' },
-  { id: 'sm5', cat: 'Super Mario', n: 'Yoshi', i: 'https://i.pinimg.com/736x/f3/05/7f/f3057f14de68b0afe682ffe93dcc479b.jpg' },
-  { id: 'sm6', cat: 'Super Mario', n: 'Toad', i: 'https://i.pinimg.com/1200x/41/8a/34/418a34ae6c228f29327dcd3251cf2229.jpg' },
-  { id: 'sm7', cat: 'Super Mario', n: 'Bowser', i: 'https://i.pinimg.com/1200x/cf/3f/ec/cf3fec1f6b9334e0255065f150fa97a9.jpg' },
-  { id: 'sm8', cat: 'Super Mario', n: 'Bowser Jr', i: 'https://i.pinimg.com/736x/54/25/55/5425559e87d3bfc08a11ff695ef6d77f.jpg' },
-  // I Griffin
-  { id: 'ig1', cat: 'I Griffin', n: 'Peter', i: 'https://i.pinimg.com/736x/9e/40/74/9e4074bbe7890cd245b51b9ff5c0e33c.jpg' },
-  { id: 'ig2', cat: 'I Griffin', n: 'Lois', i: 'https://i.pinimg.com/736x/85/25/4f/85254f2fdd3cdd2ae65fb9c13dd5c6c7.jpg' },
-  { id: 'ig3', cat: 'I Griffin', n: 'Stewie', i: 'https://i.pinimg.com/736x/f3/05/30/f30530fb1e9e118e7f66568d82c05bc5.jpg' },
-  { id: 'ig4', cat: 'I Griffin', n: 'Meg', i: 'https://i.pinimg.com/1200x/fc/08/05/fc080502466c0c9a0d48433022fe507d.jpg' },
-  { id: 'ig5', cat: 'I Griffin', n: 'Quagmire', i: 'https://i.pinimg.com/736x/9c/ab/ba/9cabba30d1f8cfbc11c8c9e7d1c0566f.jpg' },
-  { id: 'ig6', cat: 'I Griffin', n: 'Herbert', i: 'https://i.pinimg.com/736x/11/c8/68/11c868f1f447da5bc8f7978b95d37f5f.jpg' },
-  // Steven Universe
-  { id: 'su1', cat: 'Steven Universe', n: 'Steven', i: 'https://i.pinimg.com/736x/13/7e/1f/137e1fe49b450be5b1bd4785f4f19963.jpg' },
-  { id: 'su2', cat: 'Steven Universe', n: 'Perla', i: 'https://i.pinimg.com/736x/72/72/8d/72728d693439a74022d978b5fdedc12e.jpg' },
-  { id: 'su3', cat: 'Steven Universe', n: 'Ametista', i: 'https://i.pinimg.com/736x/b7/7c/24/b77c240460645834ca641472d91d24f6.jpg' },
-  { id: 'su4', cat: 'Steven Universe', n: 'Garnet', i: 'https://i.pinimg.com/736x/c7/d6/04/c7d6048b710172958bb07056f870606a.jpg' },
-  { id: 'su5', cat: 'Steven Universe', n: 'Lapis', i: 'https://i.pinimg.com/1200x/09/fb/12/09fb12467957da96913fc8f75e6f6356.jpg' },
-  { id: 'su6', cat: 'Steven Universe', n: 'Peridot', i: 'https://i.pinimg.com/736x/2b/5d/13/2b5d132d544a18b864861d9026bf135d.jpg' },
-  { id: 'su7', cat: 'Steven Universe', n: 'Jasper', i: 'https://i.pinimg.com/1200x/4c/6b/20/4c6b20ef533c1343eed1702288d17cf4.jpg' }
-];
-
-// MODIFICA DEGLI STRUMENTI: Tolto Ruba, aggiunto Terremoto e Conquista
-const ITEMS = [
-  { id: 'turbo', n: 'Turbo', icon: '🚀', desc: '+2 al prossimo lancio.' },
-  { id: 'curse', n: 'Maledizione', icon: '💀', desc: '-2 al prossimo lancio di un nemico.' },
-  { id: 'jackpot', n: 'Jackpot', icon: '🎰', desc: 'Lancia il dado di nuovo a fine turno.' },
-  { id: 'terremoto', n: 'Terremoto', icon: '🌋', desc: 'Distruggi 2 caselle di un avversario.' },
-  { id: 'conquista', n: 'Conquista', icon: '🏳️', desc: 'Ottieni 2 caselle libere a caso.' }
-];
-
-// --- FUNZIONI DI UTILITÀ ---
-const getCollectionRef = () => collection(db, 'artifacts', appId, 'public', 'data', 'rooms');
-
-const generateBoard = (size, shape) => {
-  const board = {};
-  const center = (size - 1) / 2;
-  for (let y = 0; y < size; y++) {
-    for (let x = 0; x < size; x++) {
-      let valid = false;
-      if (shape === 'square') valid = true;
-      if (shape === 'circle') {
-        const dist = Math.sqrt(Math.pow(x - center, 2) + Math.pow(y - center, 2));
-        valid = dist <= size / 2;
-      }
-      if (shape === 'diamond') {
-        const dist = Math.abs(x - center) + Math.abs(y - center);
-        valid = dist <= size / 2 + 0.5;
-      }
-      if (valid) board[`${x},${y}`] = { owner: null, item: Math.random() < 0.06 ? ITEMS[Math.floor(Math.random() * ITEMS.length)].id : null };
-    }
-  }
-  return board;
-};
-
-const getSpawnPoints = (size, numPlayers, board) => {
-  const max = size - 1;
-  const idealSpawns = [
-    [0, 0], [max, max], [max, 0], [0, max],
-    [Math.floor(max/2), 0], [Math.floor(max/2), max], [0, Math.floor(max/2)], [max, Math.floor(max/2)]
-  ];
-  
-  const actualSpawns = [];
-  for (let ideal of idealSpawns) {
-    let nearest = null;
-    let minDist = Infinity;
-    Object.keys(board).forEach(key => {
-      const [x, y] = key.split(',').map(Number);
-      const dist = Math.abs(x - ideal[0]) + Math.abs(y - ideal[1]);
-      if (dist < minDist && !actualSpawns.includes(`${x},${y}`)) {
-        minDist = dist;
-        nearest = `${x},${y}`;
-      }
-    });
-    if (nearest) actualSpawns.push(nearest);
-    if (actualSpawns.length >= numPlayers) break;
-  }
-  return actualSpawns;
-};
-
-// Genera struttura corretta del torneo (64 -> 32 -> 16 -> 8 -> 4)
-const buildTournamentTree = (totalPlayers) => {
-    const phases = [];
-    let currentSize = totalPlayers;
+<!DOCTYPE html>
+<html lang="it">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Territory War Online</title>
     
-    while (currentSize > 4) {
-        let matchSize = currentSize >= 32 ? 8 : 4;
-        let numMatches = currentSize / matchSize;
-        
-        const matches = [];
-        for (let i = 0; i < numMatches; i++) {
-            matches.push({ players: [], completed: false, winners: [] });
-        }
-        
-        phases.push({ name: `Top ${currentSize}`, matches, matchSize });
-        
-        currentSize = numMatches * (matchSize / 2); 
-    }
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
     
-    phases.push({ name: "Finalissima", matches: [{ players: [], completed: false, winners: [] }], matchSize: 4 });
-    return phases;
-};
-
-// Helper: Gestisce la logica di avanzamento nel tabellone del torneo
-const handleTournamentMatchEnd = async (room, winners) => {
-    const { phases, currentPhase, currentMatch } = room.tournament;
-    const newPhases = [...phases];
+    <!-- React & ReactDOM -->
+    <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+    <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
     
-    newPhases[currentPhase].matches[currentMatch].winners = winners;
-    newPhases[currentPhase].matches[currentMatch].completed = true;
+    <!-- Babel (Per compilare JSX nel browser) -->
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
 
-    let nextPhaseIdx = currentPhase;
-    let nextMatchIdx = currentMatch + 1;
+    <style>
+        /* Utility per nascondere le scrollbar ma permettere lo scroll */
+        .scrollbar-hide::-webkit-scrollbar { display: none; }
+        .scrollbar-hide { -ms-overflow-style: none; scrollbar-width: none; }
+    </style>
+</head>
+<body class="bg-slate-900 text-slate-100">
 
-    if (nextMatchIdx >= newPhases[currentPhase].matches.length) {
-        nextPhaseIdx++;
-        nextMatchIdx = 0;
-        
-        if (nextPhaseIdx < newPhases.length) {
-            const prevMatchesCount = newPhases[currentPhase].matches.length;
-            const nextMatchesCount = newPhases[nextPhaseIdx].matches.length;
-            
-            for (let i = 0; i < prevMatchesCount; i++) {
-                 let nextPhaseMatchIdx;
-                 if (prevMatchesCount === nextMatchesCount) {
-                     nextPhaseMatchIdx = i;
-                 } else { 
-                     nextPhaseMatchIdx = Math.floor(i / 2); 
-                 }
-                 newPhases[nextPhaseIdx].matches[nextPhaseMatchIdx].players.push(...newPhases[currentPhase].matches[i].winners);
+    <div id="root"></div>
+
+    <!-- Script del Gioco -->
+    <script type="text/babel" data-type="module">
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
+        import { getAnalytics } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-analytics.js";
+        import { getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
+        import { getFirestore, doc, setDoc, getDoc, updateDoc, onSnapshot, collection } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+
+        const { useState, useEffect, useMemo, useRef } = React;
+
+        // --- CONFIGURAZIONE FIREBASE ---
+        const firebaseConfig = {
+          apiKey: "AIzaSyCHWp-S6y_FR0v4n-PQP43RkJVqt6DxdJ4",
+          authDomain: "territory-war-4b0ae.firebaseapp.com",
+          projectId: "territory-war-4b0ae",
+          storageBucket: "territory-war-4b0ae.firebasestorage.app",
+          messagingSenderId: "643274521032",
+          appId: "1:643274521032:web:5d0c36a8dd7476873ce8fd",
+          measurementId: "G-71HCVW3SWE"
+        };
+
+        const app = initializeApp(firebaseConfig);
+        const analytics = typeof window !== 'undefined' ? getAnalytics(app) : null;
+        const auth = getAuth(app);
+        const db = getFirestore(app);
+        const appId = typeof __app_id !== 'undefined' ? __app_id : 'territory-war-app';
+
+        // --- DATI PERSONAGGI ---
+        const CHARACTERS = [
+          // Disventure Camp
+          { id: 'dc1', cat: 'Disventure Camp', n: 'Tom', i: 'https://i.pinimg.com/736x/db/d4/2a/dbd42a105be5cd57fa6a0ed9a8ab7df8.jpg' },
+          { id: 'dc2', cat: 'Disventure Camp', n: 'Jake', i: 'https://i.pinimg.com/736x/09/cb/93/09cb935d20ccac3df1d95df305e3ff75.jpg' },
+          { id: 'dc3', cat: 'Disventure Camp', n: 'Aiden', i: 'https://i.pinimg.com/736x/5a/d2/c3/5ad2c35deb3dccf1b841c7ef0b90d20d.jpg' },
+          { id: 'dc4', cat: 'Disventure Camp', n: 'Yul', i: 'https://i.pinimg.com/736x/a5/30/4d/a5304da542508a1b573db7e2dd8faed0.jpg' },
+          { id: 'dc5', cat: 'Disventure Camp', n: 'Ted', i: 'https://i.pinimg.com/736x/5c/f9/45/5cf945a3ea7f6799a3f09ee12f6a8b52.jpg' },
+          { id: 'dc6', cat: 'Disventure Camp', n: 'Spencer', i: 'https://i.pinimg.com/736x/1a/a6/94/1aa69432bc0438f9a30f595ff4693afa.jpg' },
+          { id: 'dc7', cat: 'Disventure Camp', n: 'Gabby', i: 'https://i.pinimg.com/736x/a9/02/f6/a902f64bb2fad9ea7c0ef3fb8378eefb.jpg' },
+          { id: 'dc8', cat: 'Disventure Camp', n: 'Miriam', i: 'https://i.pinimg.com/736x/20/32/bf/2032bf76dbdf63b46ae9700a0f110e96.jpg' },
+          { id: 'dc9', cat: 'Disventure Camp', n: 'Fiore', i: 'https://i.pinimg.com/736x/97/ed/43/97ed439990f0819b9441ea5503d36bf9.jpg' },
+          { id: 'dc10', cat: 'Disventure Camp', n: 'Ashley', i: 'https://i.pinimg.com/736x/f4/12/54/f41254f60d4c222cf59e1abbb4b0ae99.jpg' },
+          { id: 'dc11', cat: 'Disventure Camp', n: 'Tess', i: 'https://i.pinimg.com/736x/b4/0c/3a/b40c3ac96de25749753dee44ecb90196.jpg' },
+          { id: 'dc12', cat: 'Disventure Camp', n: 'Rosa Maria', i: 'https://i.pinimg.com/736x/43/26/f6/4326f60c5e78b7f88d54fdb7baa60881.jpg' },
+          // Gumball
+          { id: 'g1', cat: 'Gumball', n: 'Gumball', i: 'https://i.pinimg.com/736x/af/61/0f/af610f55e819f4bd3f37e5001a2b19ee.jpg' },
+          { id: 'g2', cat: 'Gumball', n: 'Darwin', i: 'https://i.pinimg.com/1200x/5a/cf/9c/5acf9c886678411963046b04051e610e.jpg' },
+          { id: 'g3', cat: 'Gumball', n: 'Anais', i: 'https://i.pinimg.com/736x/68/6f/3c/686f3c8f998bf2d90e5e4c294e007788.jpg' },
+          { id: 'g4', cat: 'Gumball', n: 'Nicole', i: 'https://i.pinimg.com/736x/81/24/e4/8124e43da43e1d06dcdbca15f22a0cd9.jpg' },
+          { id: 'g5', cat: 'Gumball', n: 'Sig.ra Robinson', i: 'https://i.pinimg.com/736x/ac/31/60/ac3160d1a5a50d7e95147b228e76f75c.jpg' },
+          { id: 'g6', cat: 'Gumball', n: 'Barbara', i: 'https://i.pinimg.com/736x/08/38/28/0838283d8d82e79706028350d500bd7a.jpg' },
+          { id: 'g7', cat: 'Gumball', n: 'Richard', i: 'https://i.pinimg.com/736x/8d/81/af/8d81af8b199107f03be8495b16a40f45.jpg' },
+          // I Simpson
+          { id: 's1', cat: 'I Simpson', n: 'Homer', i: 'https://i.pinimg.com/736x/f4/db/88/f4db8845d2dd534b3ff4a259edd2dce8.jpg' },
+          { id: 's2', cat: 'I Simpson', n: 'Lisa', i: 'https://i.pinimg.com/736x/81/68/de/8168de5a140ed669abfe5e2e4771b1b6.jpg' },
+          { id: 's3', cat: 'I Simpson', n: 'Bart', i: 'https://i.pinimg.com/1200x/03/11/09/031109591c66397c76e7489d42f3127d.jpg' },
+          { id: 's4', cat: 'I Simpson', n: 'Marge', i: 'https://i.pinimg.com/736x/77/6d/41/776d41748c4c9ae5940d8a9b10db881a.jpg' },
+          { id: 's5', cat: 'I Simpson', n: 'Maggie', i: 'https://i.pinimg.com/736x/12/f7/17/12f7172ecf515a362b967146399c883b.jpg' },
+          // Spongebob
+          { id: 'sb1', cat: 'Spongebob', n: 'Spongebob', i: 'https://i.pinimg.com/736x/08/9d/56/089d562f45d59b2f7e37e643a5ebf927.jpg' },
+          { id: 'sb2', cat: 'Spongebob', n: 'Patrick', i: 'https://i.pinimg.com/736x/64/a3/f7/64a3f72a484c92329ba86e33263f2478.jpg' },
+          { id: 'sb3', cat: 'Spongebob', n: 'Sandy', i: 'https://i.pinimg.com/1200x/11/5b/0b/115b0b5b56f96879c6d0129a9f024373.jpg' },
+          { id: 'sb4', cat: 'Spongebob', n: 'Mr Krab', i: 'https://i.pinimg.com/736x/57/5f/6e/575f6e42df4f8a6af5f4e4eacc6c784b.jpg' },
+          { id: 'sb5', cat: 'Spongebob', n: 'Squiddi', i: 'https://i.pinimg.com/736x/f1/98/f3/f198f31f5a1d4f4e42c52a3026ca4137.jpg' },
+          { id: 'sb6', cat: 'Spongebob', n: 'Plankton', i: 'https://i.pinimg.com/736x/af/f1/8b/aff18ba41f798ebe95ae1809410cbec9.jpg' },
+          { id: 'sb7', cat: 'Spongebob', n: 'Karen', i: 'https://i.pinimg.com/1200x/38/5e/a1/385ea10631779320f61ab3f81e7124e9.jpg' },
+          { id: 'sb8', cat: 'Spongebob', n: 'Men Rey', i: 'https://i.pinimg.com/1200x/97/16/1f/97161f40d43175c69762eac74173978c.jpg' },
+          // SuperChicche
+          { id: 'pp1', cat: 'SuperChicche', n: 'Molli', i: 'https://i.pinimg.com/1200x/14/12/b6/1412b6e774e16d5fb3ae0ac58c6c17b4.jpg' },
+          { id: 'pp2', cat: 'SuperChicche', n: 'Dolli', i: 'https://i.pinimg.com/1200x/30/7c/ae/307cae771093aff04d01adc1c1b467c0.jpg' },
+          { id: 'pp3', cat: 'SuperChicche', n: 'Lolli', i: 'https://i.pinimg.com/1200x/72/80/df/7280df80dcb57cf22d5e1bcac2d7e179.jpg' },
+          { id: 'pp4', cat: 'SuperChicche', n: 'Mojo Jojo', i: 'https://i.pinimg.com/736x/dc/69/7c/dc697c889f2fe0341afe6e30b2a4a76f.jpg' },
+          // Duefantagenitori
+          { id: 'fop1', cat: 'Duefantagenitori', n: 'Timmy', i: 'https://i.pinimg.com/1200x/d4/63/5d/d4635d14bb9b3759f41138ecd2eb1957.jpg' },
+          { id: 'fop2', cat: 'Duefantagenitori', n: 'Cosmo', i: 'https://i.pinimg.com/736x/47/22/99/472299b4c669c052c662df1730403d83.jpg' },
+          { id: 'fop3', cat: 'Duefantagenitori', n: 'Wanda', i: 'https://i.pinimg.com/736x/99/87/b7/9987b79d555daf6e60f2c501064ac38f.jpg' },
+          { id: 'fop4', cat: 'Duefantagenitori', n: 'Vicky', i: 'https://i.pinimg.com/736x/60/c4/17/60c4178a696ba9ce13dd9cc6c93c6e67.jpg' },
+          { id: 'fop5', cat: 'Duefantagenitori', n: 'Poof', i: 'https://i.pinimg.com/736x/30/12/4f/30124fb9a8972916ed4e00f955b1fff1.jpg' },
+          { id: 'fop6', cat: 'Duefantagenitori', n: 'Pery', i: 'https://i.pinimg.com/736x/de/55/68/de5568d079e016f6dbebeb62a9002ae2.jpg' },
+          { id: 'fop7', cat: 'Duefantagenitori', n: 'Jorgen', i: 'https://i.pinimg.com/736x/dd/2f/53/dd2f53bc40b9918026bd5fa49f4cdf4d.jpg' },
+          { id: 'fop8', cat: 'Duefantagenitori', n: 'Tootie', i: 'https://i.pinimg.com/736x/4b/d8/68/4bd868be085f1e8d01d2d8f8629f94d0.jpg' },
+          // Cantanti
+          { id: 'sing1', cat: 'Cantanti', n: 'Ariana Grande', i: 'https://i.pinimg.com/736x/4c/45/33/4c4533750e250ed0b8e0e57753aa9017.jpg' },
+          { id: 'sing2', cat: 'Cantanti', n: 'Lady Gaga', i: 'https://i.pinimg.com/736x/59/02/68/5902680e38e45503a559fbd528268eab.jpg' },
+          { id: 'sing3', cat: 'Cantanti', n: 'Billie Eilish', i: 'https://i.pinimg.com/736x/eb/42/87/eb4287c2497f1220cfe6fe7aaf3b6b8e.jpg' },
+          // Principesse
+          { id: 'prin1', cat: 'Principesse', n: 'Rosalinda', i: 'https://i.pinimg.com/736x/da/87/05/da87056e17f0b24989898b059a1b0560.jpg' },
+          { id: 'prin2', cat: 'Principesse', n: 'Peach', i: 'https://i.pinimg.com/736x/98/65/39/986539a9ccd1408d51eb061df724377f.jpg' },
+          { id: 'prin3', cat: 'Principesse', n: 'Elsa', i: 'https://i.pinimg.com/1200x/2f/bb/8b/2fbb8ba8053726318534824cf1a455d8.jpg' },
+          { id: 'prin4', cat: 'Principesse', n: 'Biancaneve', i: 'https://i.pinimg.com/1200x/c0/c9/37/c0c9370bb94279706e63c9a3b9b8bc91.jpg' },
+          { id: 'prin5', cat: 'Principesse', n: 'Vanellope', i: 'https://i.pinimg.com/1200x/99/e6/d4/99e6d42b2285d52ce58b348517c21059.jpg' },
+          // American Dad
+          { id: 'ad1', cat: 'American Dad', n: 'Stan', i: 'https://i.pinimg.com/736x/10/00/32/100032f9cfa72f9934ec6ef9530014c4.jpg' },
+          { id: 'ad2', cat: 'American Dad', n: 'Francine', i: 'https://i.pinimg.com/736x/95/f1/5d/95f15df1ead09d7f486f597670339b99.jpg' },
+          { id: 'ad3', cat: 'American Dad', n: 'Hayley', i: 'https://i.pinimg.com/736x/ff/0a/68/ff0a68de85d1bd98e29be7c05860b437.jpg' },
+          { id: 'ad4', cat: 'American Dad', n: 'Roger', i: 'https://i.pinimg.com/1200x/26/68/1a/26681ade5ccae3524acf2a203e19b6ac.jpg' },
+          { id: 'ad5', cat: 'American Dad', n: 'Steve', i: 'https://i.pinimg.com/1200x/ad/b3/46/adb3465ea7efcf62537e95496d56a443.jpg' },
+          { id: 'ad6', cat: 'American Dad', n: 'Klaus', i: 'https://i.pinimg.com/1200x/e0/53/c9/e053c9dc6d78aee16290f21b89a44ed4.jpg' },
+          // Super Mario
+          { id: 'sm1', cat: 'Super Mario', n: 'Mario', i: 'https://i.pinimg.com/736x/be/2d/98/be2d98feb1899ffa3d713423b50cbb98.jpg' },
+          { id: 'sm2', cat: 'Super Mario', n: 'Luigi', i: 'https://i.pinimg.com/736x/ed/f2/f6/edf2f6063d11ab84570572a42beba223.jpg' },
+          { id: 'sm3', cat: 'Super Mario', n: 'Wario', i: 'https://i.pinimg.com/736x/d1/dc/2f/d1dc2f211895104743fce7407d5d90df.jpg' },
+          { id: 'sm4', cat: 'Super Mario', n: 'Waluigi', i: 'https://i.pinimg.com/736x/68/2b/61/682b611cb8b1b9eca045cc801e5ed25f.jpg' },
+          { id: 'sm5', cat: 'Super Mario', n: 'Yoshi', i: 'https://i.pinimg.com/736x/f3/05/7f/f3057f14de68b0afe682ffe93dcc479b.jpg' },
+          { id: 'sm6', cat: 'Super Mario', n: 'Toad', i: 'https://i.pinimg.com/1200x/41/8a/34/418a34ae6c228f29327dcd3251cf2229.jpg' },
+          { id: 'sm7', cat: 'Super Mario', n: 'Bowser', i: 'https://i.pinimg.com/1200x/cf/3f/ec/cf3fec1f6b9334e0255065f150fa97a9.jpg' },
+          { id: 'sm8', cat: 'Super Mario', n: 'Bowser Jr', i: 'https://i.pinimg.com/736x/54/25/55/5425559e87d3bfc08a11ff695ef6d77f.jpg' },
+          // I Griffin
+          { id: 'ig1', cat: 'I Griffin', n: 'Peter', i: 'https://i.pinimg.com/736x/9e/40/74/9e4074bbe7890cd245b51b9ff5c0e33c.jpg' },
+          { id: 'ig2', cat: 'I Griffin', n: 'Lois', i: 'https://i.pinimg.com/736x/85/25/4f/85254f2fdd3cdd2ae65fb9c13dd5c6c7.jpg' },
+          { id: 'ig3', cat: 'I Griffin', n: 'Stewie', i: 'https://i.pinimg.com/736x/f3/05/30/f30530fb1e9e118e7f66568d82c05bc5.jpg' },
+          { id: 'ig4', cat: 'I Griffin', n: 'Meg', i: 'https://i.pinimg.com/1200x/fc/08/05/fc080502466c0c9a0d48433022fe507d.jpg' },
+          { id: 'ig5', cat: 'I Griffin', n: 'Quagmire', i: 'https://i.pinimg.com/736x/9c/ab/ba/9cabba30d1f8cfbc11c8c9e7d1c0566f.jpg' },
+          { id: 'ig6', cat: 'I Griffin', n: 'Herbert', i: 'https://i.pinimg.com/736x/11/c8/68/11c868f1f447da5bc8f7978b95d37f5f.jpg' },
+          // Steven Universe
+          { id: 'su1', cat: 'Steven Universe', n: 'Steven', i: 'https://i.pinimg.com/736x/13/7e/1f/137e1fe49b450be5b1bd4785f4f19963.jpg' },
+          { id: 'su2', cat: 'Steven Universe', n: 'Perla', i: 'https://i.pinimg.com/736x/72/72/8d/72728d693439a74022d978b5fdedc12e.jpg' },
+          { id: 'su3', cat: 'Steven Universe', n: 'Ametista', i: 'https://i.pinimg.com/736x/b7/7c/24/b77c240460645834ca641472d91d24f6.jpg' },
+          { id: 'su4', cat: 'Steven Universe', n: 'Garnet', i: 'https://i.pinimg.com/736x/c7/d6/04/c7d6048b710172958bb07056f870606a.jpg' },
+          { id: 'su5', cat: 'Steven Universe', n: 'Lapis', i: 'https://i.pinimg.com/1200x/09/fb/12/09fb12467957da96913fc8f75e6f6356.jpg' },
+          { id: 'su6', cat: 'Steven Universe', n: 'Peridot', i: 'https://i.pinimg.com/736x/2b/5d/13/2b5d132d544a18b864861d9026bf135d.jpg' },
+          { id: 'su7', cat: 'Steven Universe', n: 'Jasper', i: 'https://i.pinimg.com/1200x/4c/6b/20/4c6b20ef533c1343eed1702288d17cf4.jpg' }
+        ];
+
+        // MODIFICA DEGLI STRUMENTI: Tolto Ruba, aggiunto Terremoto e Conquista
+        const ITEMS = [
+          { id: 'turbo', n: 'Turbo', icon: '🚀', desc: '+2 al prossimo lancio.' },
+          { id: 'curse', n: 'Maledizione', icon: '💀', desc: '-2 al prossimo lancio di un nemico.' },
+          { id: 'jackpot', n: 'Jackpot', icon: '🎰', desc: 'Lancia il dado di nuovo a fine turno.' },
+          { id: 'terremoto', n: 'Terremoto', icon: '🌋', desc: 'Distruggi 2 caselle di un avversario.' },
+          { id: 'conquista', n: 'Conquista', icon: '🏳️', desc: 'Ottieni 2 caselle libere a caso.' }
+        ];
+
+        // --- FUNZIONI DI UTILITÀ ---
+        const getCollectionRef = () => collection(db, 'artifacts', appId, 'public', 'data', 'rooms');
+
+        const generateBoard = (size, shape) => {
+          const board = {};
+          const center = (size - 1) / 2;
+          for (let y = 0; y < size; y++) {
+            for (let x = 0; x < size; x++) {
+              let valid = false;
+              if (shape === 'square') valid = true;
+              if (shape === 'circle') {
+                const dist = Math.sqrt(Math.pow(x - center, 2) + Math.pow(y - center, 2));
+                valid = dist <= size / 2;
+              }
+              if (shape === 'diamond') {
+                const dist = Math.abs(x - center) + Math.abs(y - center);
+                valid = dist <= size / 2 + 0.5;
+              }
+              if (valid) board[`${x},${y}`] = { owner: null, item: Math.random() < 0.06 ? ITEMS[Math.floor(Math.random() * ITEMS.length)].id : null };
             }
-        }
-    }
+          }
+          return board;
+        };
 
-    await updateDoc(doc(getFirestore(), 'artifacts', typeof __app_id !== 'undefined' ? __app_id : 'territory-war-app', 'public', 'data', 'rooms', room.id), {
-        status: 'tournament_bracket',
-        'tournament.phases': newPhases,
-        'tournament.currentPhase': nextPhaseIdx,
-        'tournament.currentMatch': nextMatchIdx
-    });
-};
+        const getSpawnPoints = (size, numPlayers, board) => {
+          const max = size - 1;
+          const idealSpawns = [
+            [0, 0], [max, max], [max, 0], [0, max],
+            [Math.floor(max/2), 0], [Math.floor(max/2), max], [0, Math.floor(max/2)], [max, Math.floor(max/2)]
+          ];
+          
+          const actualSpawns = [];
+          for (let ideal of idealSpawns) {
+            let nearest = null;
+            let minDist = Infinity;
+            Object.keys(board).forEach(key => {
+              const [x, y] = key.split(',').map(Number);
+              const dist = Math.abs(x - ideal[0]) + Math.abs(y - ideal[1]);
+              if (dist < minDist && !actualSpawns.includes(`${x},${y}`)) {
+                minDist = dist;
+                nearest = `${x},${y}`;
+              }
+            });
+            if (nearest) actualSpawns.push(nearest);
+            if (actualSpawns.length >= numPlayers) break;
+          }
+          return actualSpawns;
+        };
 
-
-// --- COMPONENTE PRINCIPALE ---
-export default function App() {
-  const [user, setUser] = useState(null);
-  const [room, setRoom] = useState(null);
-  const [roomId, setRoomId] = useState('');
-  const [joining, setJoining] = useState(false);
-  const [error, setError] = useState('');
-  const [notification, setNotification] = useState(null);
-
-  const showNotif = (msg) => {
-    setNotification(msg);
-    setTimeout(() => setNotification(null), 3000);
-  };
-
-  useEffect(() => {
-    const initAuth = async () => {
-      try {
-        if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) {
-          await signInWithCustomToken(auth, __initial_auth_token);
-        } else {
-          await signInAnonymously(auth);
-        }
-      } catch (e) {
-        console.error("Auth error", e);
-        try { await signInAnonymously(auth); } catch(err) { console.error(err); }
-      }
-    };
-    initAuth();
-    const unsub = onAuthStateChanged(auth, setUser);
-    return () => unsub();
-  }, []);
-
-  useEffect(() => {
-    if (!user || !roomId) return;
-    const roomRef = doc(getCollectionRef(), roomId);
-    const unsub = onSnapshot(roomRef, (docSnap) => {
-      if (docSnap.exists()) {
-        setRoom({ id: docSnap.id, ...docSnap.data() });
-      } else {
-        setError("Stanza non trovata!");
-        setRoom(null);
-      }
-    }, (err) => {
-      console.error(err);
-      setError("Errore connessione.");
-    });
-    return () => unsub();
-  }, [user, roomId]);
-
-  const createRoom = async () => {
-    if (!user) return;
-    const newRoomId = Math.random().toString(36).substring(2, 8).toUpperCase();
-    const hostColor = '#' + Math.floor(Math.random()*16777215).toString(16).padStart(6, '0');
-    const roomData = {
-      status: 'lobby',
-      hostId: user.uid,
-      config: { 
-          mode: 'standard', 
-          players: 4,       
-          tournamentSize: 8, 
-          size: 10, 
-          shape: 'square', 
-          maxRounds: 20,
-          invasionMode: false
-      },
-      players: {
-        [user.uid]: { id: user.uid, n: 'Host', isBot: false, color: hostColor, charId: null, ready: false }
-      },
-      playerOrder: [user.uid],
-      round: 1,
-      turnIndex: 0
-    };
-    await setDoc(doc(getCollectionRef(), newRoomId), roomData);
-    setRoomId(newRoomId);
-  };
-
-  const joinRoom = async (e) => {
-    e.preventDefault();
-    const code = e.target.elements.code.value.toUpperCase();
-    if (!user || !code) return;
-    setJoining(true);
-    try {
-      const roomRef = doc(getCollectionRef(), code);
-      const snap = await getDoc(roomRef);
-      if (snap.exists()) {
-        const data = snap.data();
-        if (data.status !== 'lobby') {
-          setError("Partita già iniziata!");
-        } else if (data.config.mode === 'standard' && data.playerOrder.length >= data.config.players) {
-          setError("Stanza piena!");
-        } else if (data.config.mode === 'tournament' && data.playerOrder.length >= data.config.tournamentSize) {
-          setError("Torneo pieno!");
-        } else if (!data.players[user.uid]) {
-          const newColor = '#' + Math.floor(Math.random()*16777215).toString(16).padStart(6, '0');
-          await updateDoc(roomRef, {
-            [`players.${user.uid}`]: { id: user.uid, n: 'Giocatore', isBot: false, color: newColor, charId: null, ready: false },
-            playerOrder: [...data.playerOrder, user.uid]
-          });
-          setRoomId(code);
-          setError("");
-        } else {
-          setRoomId(code); // Già dentro
-        }
-      } else {
-        setError("Stanza inesistente!");
-      }
-    } catch (e) {
-      setError("Errore durante l'accesso.");
-    }
-    setJoining(false);
-  };
-
-  const leaveRoom = () => {
-    setRoomId('');
-    setRoom(null);
-  };
-
-  if (!user) return <div className="min-h-screen bg-gray-900 flex items-center justify-center text-white">Caricamento...</div>;
-
-  return (
-    <div className="min-h-screen bg-slate-900 text-slate-100 font-sans selection:bg-indigo-500 selection:text-white">
-      {notification && (
-        <div className="fixed top-4 left-1/2 transform -translate-x-1/2 bg-indigo-600 text-white px-6 py-3 rounded-full shadow-2xl z-50 animate-bounce">
-          {notification}
-        </div>
-      )}
-
-      {!room ? (
-        <div className="flex flex-col items-center justify-center min-h-screen p-4">
-          <div className="bg-slate-800 p-8 rounded-2xl shadow-xl w-full max-w-md border border-slate-700">
-            <h1 className="text-4xl font-black text-center mb-8 bg-gradient-to-r from-indigo-400 to-purple-400 bg-clip-text text-transparent">TERRITORY WAR</h1>
+        // Genera struttura corretta del torneo (64 -> 32 -> 16 -> 8 -> 4)
+        const buildTournamentTree = (totalPlayers) => {
+            const phases = [];
+            let currentSize = totalPlayers;
             
-            <button onClick={createRoom} className="w-full bg-indigo-600 hover:bg-indigo-500 text-white font-bold py-3 px-4 rounded-xl mb-6 transition-all transform hover:scale-105 shadow-lg shadow-indigo-500/30">
-              Crea Nuova Stanza
-            </button>
+            while (currentSize > 4) {
+                let matchSize = currentSize >= 32 ? 8 : 4;
+                let numMatches = currentSize / matchSize;
+                
+                const matches = [];
+                for (let i = 0; i < numMatches; i++) {
+                    matches.push({ players: [], completed: false, winners: [] });
+                }
+                
+                phases.push({ name: `Top ${currentSize}`, matches, matchSize });
+                
+                currentSize = numMatches * (matchSize / 2); 
+            }
             
-            <div className="flex items-center mb-6">
-              <div className="flex-grow border-t border-slate-600"></div>
-              <span className="px-4 text-slate-400 text-sm">OPPURE</span>
-              <div className="flex-grow border-t border-slate-600"></div>
-            </div>
+            phases.push({ name: "Finalissima", matches: [{ players: [], completed: false, winners: [] }], matchSize: 4 });
+            return phases;
+        };
 
-            <form onSubmit={joinRoom} className="flex gap-2">
-              <input name="code" type="text" placeholder="Codice Stanza" className="flex-grow bg-slate-700 border border-slate-600 rounded-xl px-4 py-3 outline-none focus:border-indigo-500 uppercase font-mono" maxLength={6} required />
-              <button type="submit" disabled={joining} className="bg-emerald-600 hover:bg-emerald-500 text-white font-bold py-3 px-6 rounded-xl transition-all disabled:opacity-50">
-                {joining ? '...' : 'Entra'}
-              </button>
-            </form>
-            {error && <p className="text-red-400 mt-4 text-center">{error}</p>}
-          </div>
-        </div>
-      ) : room.status === 'lobby' ? (
-        <Lobby room={room} user={user} onLeave={leaveRoom} showNotif={showNotif} />
-      ) : room.status === 'tournament_bracket' ? (
-        <TournamentBracket room={room} user={user} showNotif={showNotif} />
-      ) : (
-        <Game room={room} user={user} showNotif={showNotif} />
-      )}
-    </div>
-  );
-}
+        // Helper: Gestisce la logica di avanzamento nel tabellone del torneo
+        const handleTournamentMatchEnd = async (room, winners) => {
+            const { phases, currentPhase, currentMatch } = room.tournament;
+            const newPhases = [...phases];
+            
+            newPhases[currentPhase].matches[currentMatch].winners = winners;
+            newPhases[currentPhase].matches[currentMatch].completed = true;
 
-// --- LOBBY ---
-function Lobby({ room, user, onLeave, showNotif }) {
-  const isHost = room.hostId === user.uid;
-  const me = room.players[user.uid];
-  const [filter, setFilter] = useState('All');
+            let nextPhaseIdx = currentPhase;
+            let nextMatchIdx = currentMatch + 1;
 
-  const categories = ['All', 'Alfabetico', ...new Set(CHARACTERS.map(c => c.cat))];
-  
-  let displayedChars = [...CHARACTERS];
-  if (filter === 'Alfabetico') displayedChars.sort((a, b) => a.n.localeCompare(b.n));
-  else if (filter !== 'All') displayedChars = displayedChars.filter(c => c.cat === filter);
-
-  const updateConfig = async (key, val) => {
-    if (!isHost) return;
-    await updateDoc(doc(getCollectionRef(), room.id), { [`config.${key}`]: val });
-  };
-
-  const selectChar = async (charId) => {
-    const isTaken = Object.values(room.players).some(p => p.charId === charId);
-    if (isTaken) return showNotif("Personaggio già preso!");
-    
-    await updateDoc(doc(getCollectionRef(), room.id), {
-      [`players.${user.uid}.charId`]: charId,
-      [`players.${user.uid}.n`]: CHARACTERS.find(c => c.id === charId).n
-    });
-  };
-
-  const toggleReady = async () => {
-    if (!me?.charId) return showNotif("Scegli un personaggio prima!");
-    await updateDoc(doc(getCollectionRef(), room.id), {
-      [`players.${user.uid}.ready`]: !me.ready
-    });
-  };
-
-  const addBot = async () => {
-    const maxAllowed = room.config.mode === 'tournament' ? room.config.tournamentSize : room.config.players;
-    if (!isHost || room.playerOrder.length >= maxAllowed) return;
-    
-    const botId = `bot_${Math.random().toString(36).substring(2, 7)}`;
-    const color = '#' + Math.floor(Math.random()*16777215).toString(16).padStart(6, '0');
-    
-    const pickedChars = Object.values(room.players).map(p => p.charId).filter(Boolean);
-    const available = CHARACTERS.filter(c => !pickedChars.includes(c.id));
-    const char = available[Math.floor(Math.random() * available.length)];
-
-    await updateDoc(doc(getCollectionRef(), room.id), {
-      [`players.${botId}`]: { id: botId, n: `[BOT] ${char.n}`, isBot: true, color, charId: char.id, ready: true },
-      playerOrder: [...room.playerOrder, botId]
-    });
-  };
-
-  const generateTournamentBot = (existingPlayersObj, existingOrder) => {
-      const botId = `bot_${Math.random().toString(36).substring(2, 7)}`;
-      const color = '#' + Math.floor(Math.random()*16777215).toString(16).padStart(6, '0');
-      const pickedChars = Object.values(existingPlayersObj).map(p => p.charId).filter(Boolean);
-      const available = CHARACTERS.filter(c => !pickedChars.includes(c.id));
-      const char = available[Math.floor(Math.random() * available.length)];
-      
-      return { 
-          id: botId, 
-          data: { id: botId, n: `[BOT] ${char.n}`, isBot: true, color, charId: char.id, ready: true } 
-      };
-  };
-
-  const startGame = async () => {
-    if (!isHost) return;
-    const allReady = Object.values(room.players).every(p => p.ready);
-    if (!allReady) return showNotif("Tutti devono essere pronti!");
-
-    if (room.config.mode === 'tournament') {
-        let finalPlayersObj = { ...room.players };
-        let finalPlayerOrder = [ ...room.playerOrder ];
-        
-        while (finalPlayerOrder.length < room.config.tournamentSize) {
-            const bot = generateTournamentBot(finalPlayersObj, finalPlayerOrder);
-            finalPlayersObj[bot.id] = bot.data;
-            finalPlayerOrder.push(bot.id);
-        }
-
-        const shuffledOrder = [...finalPlayerOrder].sort(() => Math.random() - 0.5);
-        const tournamentPhases = buildTournamentTree(room.config.tournamentSize);
-        
-        let playerIdx = 0;
-        const firstPhaseMatchSize = tournamentPhases[0].matchSize;
-        tournamentPhases[0].matches.forEach(match => {
-            for(let i=0; i < firstPhaseMatchSize; i++) {
-                if (shuffledOrder[playerIdx]) {
-                    match.players.push(shuffledOrder[playerIdx]);
-                    playerIdx++;
+            if (nextMatchIdx >= newPhases[currentPhase].matches.length) {
+                nextPhaseIdx++;
+                nextMatchIdx = 0;
+                
+                if (nextPhaseIdx < newPhases.length) {
+                    const prevMatchesCount = newPhases[currentPhase].matches.length;
+                    const nextMatchesCount = newPhases[nextPhaseIdx].matches.length;
+                    
+                    for (let i = 0; i < prevMatchesCount; i++) {
+                         let nextPhaseMatchIdx;
+                         if (prevMatchesCount === nextMatchesCount) {
+                             nextPhaseMatchIdx = i;
+                         } else { 
+                             nextPhaseMatchIdx = Math.floor(i / 2); 
+                         }
+                         newPhases[nextPhaseIdx].matches[nextPhaseMatchIdx].players.push(...newPhases[currentPhase].matches[i].winners);
+                    }
                 }
             }
-        });
 
-        await updateDoc(doc(getCollectionRef(), room.id), {
-            status: 'tournament_bracket',
-            players: finalPlayersObj,
-            playerOrder: finalPlayerOrder,
-            tournament: {
-                phases: tournamentPhases,
-                currentPhase: 0,
-                currentMatch: 0
+            await updateDoc(doc(getFirestore(), 'artifacts', typeof __app_id !== 'undefined' ? __app_id : 'territory-war-app', 'public', 'data', 'rooms', room.id), {
+                status: 'tournament_bracket',
+                'tournament.phases': newPhases,
+                'tournament.currentPhase': nextPhaseIdx,
+                'tournament.currentMatch': nextMatchIdx
+            });
+        };
+
+
+        // --- COMPONENTE PRINCIPALE ---
+        function App() {
+          const [user, setUser] = useState(null);
+          const [room, setRoom] = useState(null);
+          const [roomId, setRoomId] = useState('');
+          const [joining, setJoining] = useState(false);
+          const [error, setError] = useState('');
+          const [notification, setNotification] = useState(null);
+
+          const showNotif = (msg) => {
+            setNotification(msg);
+            setTimeout(() => setNotification(null), 3000);
+          };
+
+          useEffect(() => {
+            const initAuth = async () => {
+              try {
+                if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) {
+                  await signInWithCustomToken(auth, __initial_auth_token);
+                } else {
+                  await signInAnonymously(auth);
+                }
+              } catch (e) {
+                console.error("Auth error", e);
+                try { await signInAnonymously(auth); } catch(err) { console.error(err); }
+              }
+            };
+            initAuth();
+            const unsub = onAuthStateChanged(auth, setUser);
+            return () => unsub();
+          }, []);
+
+          useEffect(() => {
+            if (!user || !roomId) return;
+            const roomRef = doc(getCollectionRef(), roomId);
+            const unsub = onSnapshot(roomRef, (docSnap) => {
+              if (docSnap.exists()) {
+                setRoom({ id: docSnap.id, ...docSnap.data() });
+              } else {
+                setError("Stanza non trovata!");
+                setRoom(null);
+              }
+            }, (err) => {
+              console.error(err);
+              setError("Errore connessione.");
+            });
+            return () => unsub();
+          }, [user, roomId]);
+
+          const createRoom = async () => {
+            if (!user) return;
+            const newRoomId = Math.random().toString(36).substring(2, 8).toUpperCase();
+            const hostColor = '#' + Math.floor(Math.random()*16777215).toString(16).padStart(6, '0');
+            const roomData = {
+              status: 'lobby',
+              hostId: user.uid,
+              config: { 
+                  mode: 'standard', 
+                  players: 4,       
+                  tournamentSize: 8, 
+                  size: 10, 
+                  shape: 'square', 
+                  maxRounds: 20,
+                  invasionMode: false
+              },
+              players: {
+                [user.uid]: { id: user.uid, n: 'Host', isBot: false, color: hostColor, charId: null, ready: false }
+              },
+              playerOrder: [user.uid],
+              round: 1,
+              turnIndex: 0
+            };
+            await setDoc(doc(getCollectionRef(), newRoomId), roomData);
+            setRoomId(newRoomId);
+          };
+
+          const joinRoom = async (e) => {
+            e.preventDefault();
+            const code = e.target.elements.code.value.toUpperCase();
+            if (!user || !code) return;
+            setJoining(true);
+            try {
+              const roomRef = doc(getCollectionRef(), code);
+              const snap = await getDoc(roomRef);
+              if (snap.exists()) {
+                const data = snap.data();
+                if (data.status !== 'lobby') {
+                  setError("Partita già iniziata!");
+                } else if (data.config.mode === 'standard' && data.playerOrder.length >= data.config.players) {
+                  setError("Stanza piena!");
+                } else if (data.config.mode === 'tournament' && data.playerOrder.length >= data.config.tournamentSize) {
+                  setError("Torneo pieno!");
+                } else if (!data.players[user.uid]) {
+                  const newColor = '#' + Math.floor(Math.random()*16777215).toString(16).padStart(6, '0');
+                  await updateDoc(roomRef, {
+                    [`players.${user.uid}`]: { id: user.uid, n: 'Giocatore', isBot: false, color: newColor, charId: null, ready: false },
+                    playerOrder: [...data.playerOrder, user.uid]
+                  });
+                  setRoomId(code);
+                  setError("");
+                } else {
+                  setRoomId(code); // Già dentro
+                }
+              } else {
+                setError("Stanza inesistente!");
+              }
+            } catch (e) {
+              setError("Errore durante l'accesso.");
             }
-        });
+            setJoining(false);
+          };
 
-    } else {
-        const board = generateBoard(room.config.size, room.config.shape);
-        const spawns = getSpawnPoints(room.config.size, room.playerOrder.length, board);
-        
-        const updates = { status: 'playing', board: board, turnIndex: 0, round: 1, actionState: 'rolling', movesLeft: 0, currentRoll: 0 };
-        room.playerOrder.forEach((pid, idx) => {
-          updates[`players.${pid}.tiles`] = 1;
-          updates[`players.${pid}.inventory`] = [];
-          updates[`players.${pid}.modifier`] = 0;
-          updates[`players.${pid}.isTrapped`] = false;
-          if (spawns[idx]) {
-            updates[`board.${spawns[idx]}`] = { owner: pid, item: null };
-          }
-        });
-        await updateDoc(doc(getCollectionRef(), room.id), updates);
-    }
-  };
+          const leaveRoom = () => {
+            setRoomId('');
+            setRoom(null);
+          };
 
-  const maxDisplayPlayers = room.config.mode === 'tournament' ? room.config.tournamentSize : room.config.players;
+          if (!user) return <div className="min-h-screen bg-gray-900 flex items-center justify-center text-white">Caricamento...</div>;
 
-  return (
-    <div className="max-w-6xl mx-auto p-4 flex flex-col md:flex-row gap-6 h-screen">
-      {/* Sidebar Settings & Players */}
-      <div className="w-full md:w-1/3 flex flex-col gap-4 overflow-y-auto pr-2">
-        <div className="bg-slate-800 p-6 rounded-2xl border border-slate-700">
-          <div className="flex justify-between items-center mb-4">
-            <h2 className="text-xl font-bold text-white">Stanza: <span className="text-indigo-400 select-all">{room.id}</span></h2>
-            <button onClick={onLeave} className="text-red-400 hover:text-red-300 text-sm">Esci</button>
-          </div>
-          
-          {isHost ? (
-            <div className="space-y-4">
-              <div>
-                <label className="block text-sm text-slate-400 mb-1">Modalità Gioco</label>
-                <div className="flex gap-2">
-                    <button onClick={() => updateConfig('mode', 'standard')} className={`flex-1 py-2 rounded ${room.config.mode==='standard' ? 'bg-indigo-500 text-white font-bold' : 'bg-slate-700 text-slate-300'}`}>Standard</button>
-                    <button onClick={() => updateConfig('mode', 'tournament')} className={`flex-1 py-2 rounded ${room.config.mode==='tournament' ? 'bg-orange-500 text-white font-bold' : 'bg-slate-700 text-slate-300'}`}>Torneo</button>
+          return (
+            <div className="min-h-screen bg-slate-900 text-slate-100 font-sans selection:bg-indigo-500 selection:text-white">
+              {notification && (
+                <div className="fixed top-4 left-1/2 transform -translate-x-1/2 bg-indigo-600 text-white px-6 py-3 rounded-full shadow-2xl z-50 animate-bounce">
+                  {notification}
                 </div>
-              </div>
-
-              {room.config.mode === 'standard' ? (
-                  <div>
-                    <label className="block text-sm text-slate-400 mb-1">Giocatori Max (4-8)</label>
-                    <input type="range" min="4" max="8" value={room.config.players} onChange={(e) => updateConfig('players', parseInt(e.target.value))} className="w-full accent-indigo-500" />
-                    <div className="text-center font-bold">{room.config.players}</div>
-                  </div>
-              ) : (
-                  <div>
-                    <label className="block text-sm text-slate-400 mb-1">Partecipanti Torneo</label>
-                    <select value={room.config.tournamentSize} onChange={(e) => updateConfig('tournamentSize', parseInt(e.target.value))} className="w-full bg-slate-700 rounded p-2 text-white font-bold">
-                      <option value="8">8 Giocatori (1 Girone)</option>
-                      <option value="16">16 Giocatori (2 Gironi)</option>
-                      <option value="32">32 Giocatori (4 Gironi)</option>
-                      <option value="64">64 Giocatori (8 Gironi)</option>
-                    </select>
-                    <p className="text-xs text-slate-400 mt-1">I posti vuoti verranno riempiti dai Bot all'avvio.</p>
-                  </div>
               )}
 
-              <div>
-                <label className="block text-sm text-slate-400 mb-1">Regole Invasione</label>
-                <div className="flex gap-2">
-                    <button onClick={() => updateConfig('invasionMode', false)} className={`flex-1 py-2 rounded ${!room.config.invasionMode ? 'bg-indigo-500 text-white font-bold' : 'bg-slate-700 text-slate-300'}`}>Pacifica</button>
-                    <button onClick={() => updateConfig('invasionMode', true)} className={`flex-1 py-2 rounded ${room.config.invasionMode ? 'bg-red-500 text-white font-bold' : 'bg-slate-700 text-slate-300'}`}>Guerra</button>
-                </div>
-                <p className="text-xs text-slate-400 mt-1">
-                  {!room.config.invasionMode ? 'Non puoi rubare le caselle altrui.' : 'Puoi conquistare le caselle nemiche.'}
-                </p>
-              </div>
+              {!room ? (
+                <div className="flex flex-col items-center justify-center min-h-screen p-4">
+                  <div className="bg-slate-800 p-8 rounded-2xl shadow-xl w-full max-w-md border border-slate-700">
+                    <h1 className="text-4xl font-black text-center mb-8 bg-gradient-to-r from-indigo-400 to-purple-400 bg-clip-text text-transparent">TERRITORY WAR</h1>
+                    
+                    <button onClick={createRoom} className="w-full bg-indigo-600 hover:bg-indigo-500 text-white font-bold py-3 px-4 rounded-xl mb-6 transition-all transform hover:scale-105 shadow-lg shadow-indigo-500/30">
+                      Crea Nuova Stanza
+                    </button>
+                    
+                    <div className="flex items-center mb-6">
+                      <div className="flex-grow border-t border-slate-600"></div>
+                      <span className="px-4 text-slate-400 text-sm">OPPURE</span>
+                      <div className="flex-grow border-t border-slate-600"></div>
+                    </div>
 
-              <div>
-                <label className="block text-sm text-slate-400 mb-1">Mappa</label>
-                <select value={room.config.shape} onChange={(e) => updateConfig('shape', e.target.value)} className="w-full bg-slate-700 rounded p-2 text-white">
-                  <option value="square">Quadrato</option>
-                  <option value="circle">Cerchio</option>
-                  <option value="diamond">Rombo</option>
-                </select>
-              </div>
-              <div>
-                <label className="block text-sm text-slate-400 mb-1">Grandezza Arena ({room.config.size}x{room.config.size})</label>
-                <input type="range" min="5" max="18" value={room.config.size} onChange={(e) => updateConfig('size', parseInt(e.target.value))} className="w-full accent-indigo-500" />
-              </div>
-              <div>
-                <label className="block text-sm text-slate-400 mb-1">Rounds per Match ({room.config.maxRounds})</label>
-                <input type="range" min="5" max="50" value={room.config.maxRounds} onChange={(e) => updateConfig('maxRounds', parseInt(e.target.value))} className="w-full accent-indigo-500" />
-              </div>
-              
-              {room.config.mode === 'standard' && (
-                  <button onClick={addBot} disabled={room.playerOrder.length >= room.config.players} className="w-full bg-slate-700 hover:bg-slate-600 py-2 rounded text-sm disabled:opacity-50">
-                    + Aggiungi Bot NPC
-                  </button>
-              )}
-            </div>
-          ) : (
-             <div className="text-slate-400 text-sm italic">
-                In attesa dell'host per le impostazioni...<br/>
-                Modalità: <strong className="text-white">{room.config.mode === 'tournament' ? 'Torneo' : 'Standard'}</strong><br/>
-                Invasione: <strong className="text-white">{room.config.invasionMode ? 'Guerra (Ruba caselle)' : 'Pacifica (No furto)'}</strong><br/>
-                Mappa: {room.config.shape} {room.config.size}x{room.config.size}
-             </div>
-          )}
-        </div>
-
-        <div className="bg-slate-800 p-4 rounded-2xl border border-slate-700 flex-grow flex flex-col min-h-0">
-          <h3 className="font-bold mb-3 shrink-0">Giocatori in Lobby ({room.playerOrder.length}/{maxDisplayPlayers})</h3>
-          <div className="space-y-2 flex-1 overflow-y-auto pr-2">
-            {room.playerOrder.map(pid => {
-              const p = room.players[pid];
-              const c = CHARACTERS.find(x => x.id === p.charId);
-              return (
-                <div key={pid} className="flex items-center p-2 rounded bg-slate-700/50 border-l-4 shrink-0" style={{borderColor: p.color}}>
-                  {c ? <img src={c.i} alt="" className="w-10 h-10 rounded-full object-cover mr-3 border-2 border-slate-600" /> : <div className="w-10 h-10 rounded-full bg-slate-600 mr-3 flex items-center justify-center text-xs">?</div>}
-                  <div className="flex-grow min-w-0">
-                    <div className="font-bold text-sm truncate">{p.n}</div>
-                    <div className="text-xs text-slate-400">{p.ready ? '🟢 Pronto' : '🟡 In scelta...'}</div>
-                  </div>
-                  {isHost && p.isBot && <button onClick={() => updateDoc(doc(getCollectionRef(), room.id), { [`players.${pid}`]: null, playerOrder: room.playerOrder.filter(x => x !== pid) })} className="text-red-400 ml-2">X</button>}
-                </div>
-              );
-            })}
-          </div>
-
-          <div className="mt-4 border-t border-slate-700 pt-4 shrink-0">
-            <h3 className="font-bold mb-2 text-sm text-slate-300">Scegli il tuo Colore</h3>
-            <div className="flex items-center gap-4">
-              <input
-                type="color"
-                value={me?.color || '#ffffff'}
-                onChange={(e) => updateDoc(doc(getCollectionRef(), room.id), { [`players.${user.uid}.color`]: e.target.value })}
-                className="w-16 h-16 rounded cursor-pointer border-2 border-slate-600 bg-slate-900 p-1 shrink-0"
-                title="Clicca per scegliere un colore"
-              />
-              <span className="text-sm text-slate-400 leading-tight">
-                Clicca sul quadrato per aprire la tavolozza e creare la tinta della tua fazione.
-              </span>
-            </div>
-          </div>
-        </div>
-
-        <div className="flex flex-col gap-2 shrink-0">
-          <button onClick={toggleReady} className={`w-full py-3 rounded-xl font-bold text-lg shadow-lg transition-all text-white ${me?.ready ? 'bg-red-600 hover:bg-red-500' : 'bg-emerald-600 hover:bg-emerald-500'}`}>
-            {me?.ready ? 'Annulla Pronto' : 'SONO PRONTO'}
-          </button>
-          
-          {isHost && (
-            <button onClick={startGame} className={`w-full py-3 rounded-xl font-bold text-lg shadow-lg transition-all ${Object.values(room.players).every(p => p.ready) ? 'bg-indigo-600 hover:bg-indigo-500 text-white' : 'bg-slate-700 text-slate-500 cursor-not-allowed'}`}>
-              {room.config.mode === 'tournament' ? 'GENERA E AVVIA TORNEO' : 'INIZIA PARTITA'}
-            </button>
-          )}
-        </div>
-      </div>
-
-      {/* Roster Personaggi */}
-      <div className="w-full md:w-2/3 bg-slate-800 rounded-2xl border border-slate-700 p-6 flex flex-col h-full overflow-hidden">
-        <h2 className="text-2xl font-black mb-4 shrink-0">Scegli il tuo personaggio</h2>
-        
-        {/* Categories */}
-        <div className="flex gap-2 overflow-x-auto pb-4 mb-4 shrink-0 [&::-webkit-scrollbar]:hidden [-ms-overflow-style:none] [scrollbar-width:none]">
-          {categories.map(cat => (
-            <button key={cat} onClick={() => setFilter(cat)} className={`px-4 py-1.5 rounded-full text-sm whitespace-nowrap transition-colors ${filter === cat ? 'bg-indigo-500 text-white' : 'bg-slate-700 text-slate-300 hover:bg-slate-600'}`}>
-              {cat}
-            </button>
-          ))}
-        </div>
-
-        <div className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-5 lg:grid-cols-6 gap-4 overflow-y-auto pr-2 pb-10 flex-1 content-start">
-          {displayedChars.map(c => {
-             const isTaken = Object.values(room.players).some(p => p.charId === c.id);
-             const isMe = me?.charId === c.id;
-             return (
-              <div key={c.id} onClick={() => !isTaken && selectChar(c.id)} className={`relative flex flex-col items-center cursor-pointer transition-transform transform hover:scale-105 ${isTaken && !isMe ? 'opacity-30 cursor-not-allowed grayscale' : ''}`}>
-                <div className={`w-20 h-20 rounded-xl overflow-hidden border-4 ${isMe ? 'border-emerald-500 shadow-[0_0_15px_rgba(16,185,129,0.5)]' : 'border-slate-600'}`}>
-                  <img src={c.i} alt={c.n} className="w-full h-full object-cover" />
-                </div>
-                <span className="text-xs font-bold mt-1 text-center truncate w-full">{c.n}</span>
-                {isTaken && !isMe && <div className="absolute top-8 text-xs bg-red-600 px-2 py-0.5 rounded shadow">Preso</div>}
-              </div>
-             )
-          })}
-        </div>
-      </div>
-    </div>
-  );
-}
-
-
-// --- TOURNAMENT BRACKET VIEW ---
-function TournamentBracket({ room, user, showNotif }) {
-    const isHost = room.hostId === user.uid;
-    const { phases, currentPhase, currentMatch } = room.tournament;
-    
-    // Check if tournament is over
-    if (currentPhase >= phases.length) {
-        const finalPhase = phases[phases.length - 1];
-        const winnerId = finalPhase.matches[0].winners[0];
-        const winner = room.players[winnerId];
-
-        return (
-            <div className="min-h-screen flex items-center justify-center bg-slate-900 text-white p-4">
-              <div className="bg-slate-800 p-10 rounded-3xl text-center border-4 border-orange-500 shadow-2xl">
-                  <h1 className="text-6xl font-black text-transparent bg-clip-text bg-gradient-to-r from-yellow-400 to-yellow-600 mb-6">CAMPIONE DEL TORNEO!</h1>
-                  <img src={CHARACTERS.find(c=>c.id===winner.charId)?.i} className="w-40 h-40 rounded-full border-4 border-yellow-400 mx-auto mb-4 object-cover" />
-                  <h2 className="text-4xl font-bold mb-4" style={{color: winner.color}}>{winner.n}</h2>
-                  {isHost && (
-                      <button onClick={() => updateDoc(doc(getCollectionRef(), room.id), {status: 'lobby'})} className="mt-8 bg-indigo-600 px-8 py-3 rounded-xl font-bold">
-                          Torna alla Lobby
+                    <form onSubmit={joinRoom} className="flex gap-2">
+                      <input name="code" type="text" placeholder="Codice Stanza" className="flex-grow bg-slate-700 border border-slate-600 rounded-xl px-4 py-3 outline-none focus:border-indigo-500 uppercase font-mono" maxLength={6} required />
+                      <button type="submit" disabled={joining} className="bg-emerald-600 hover:bg-emerald-500 text-white font-bold py-3 px-6 rounded-xl transition-all disabled:opacity-50">
+                        {joining ? '...' : 'Entra'}
                       </button>
-                  )}
-              </div>
-          </div>
-        );
-    }
-
-    const phase = phases[currentPhase];
-    const match = phase.matches[currentMatch];
-    
-    const isAllBots = match.players.every(pid => room.players[pid].isBot);
-    const isUserPlaying = match.players.includes(user.uid);
-
-    const startMatch = async () => {
-        if (!isHost) return;
-        const matchPlayers = match.players;
-        const dynamicSize = matchPlayers.length >= 8 ? 14 : 10;
-        const board = generateBoard(dynamicSize, room.config.shape);
-        const spawns = getSpawnPoints(dynamicSize, matchPlayers.length, board);
-        
-        const updates = { 
-            status: 'playing_match', 
-            board: board, 
-            turnIndex: 0, 
-            round: 1, 
-            actionState: 'rolling', 
-            movesLeft: 0, 
-            currentRoll: 0,
-            currentMatchPlayers: matchPlayers, 
-            currentMatchSize: dynamicSize 
-        };
-        
-        matchPlayers.forEach((pid, idx) => {
-          updates[`players.${pid}.tiles`] = 1;
-          updates[`players.${pid}.inventory`] = [];
-          updates[`players.${pid}.modifier`] = 0;
-          updates[`players.${pid}.isTrapped`] = false;
-          if (spawns[idx]) {
-            updates[`board.${spawns[idx]}`] = { owner: pid, item: null };
-          }
-        });
-
-        await updateDoc(doc(getCollectionRef(), room.id), updates);
-    };
-
-    const simulateMatch = async () => {
-        if (!isHost) return;
-        
-        const matchPlayers = match.players;
-        const dynamicSize = matchPlayers.length >= 8 ? 14 : 10;
-        let fakeBoard = generateBoard(dynamicSize, room.config.shape);
-
-        // Simulazione: Riempiamo dinamicamente il tabellone
-        const keys = Object.keys(fakeBoard);
-        keys.forEach(k => {
-            if (fakeBoard[k]) {
-                fakeBoard[k].owner = matchPlayers[Math.floor(Math.random() * matchPlayers.length)];
-            }
-        });
-
-        // Contiamo le celle generate e resettiamo inventari
-        const tilesCount = {};
-        matchPlayers.forEach(p => tilesCount[p] = 0);
-        Object.values(fakeBoard).forEach(c => { if(c && c.owner) tilesCount[c.owner]++; });
-
-        const updates = {
-            status: 'match_finished', 
-            board: fakeBoard,
-            currentMatchPlayers: matchPlayers,
-            currentMatchSize: dynamicSize,
-            turnIndex: 0,
-            actionState: 'rolling'
-        };
-
-        matchPlayers.forEach(pid => {
-            updates[`players.${pid}.tiles`] = tilesCount[pid];
-            updates[`players.${pid}.inventory`] = [];
-        });
-
-        // Cambiamo lo stato in match_finished cosicché la Game view carichi la schermata dei risultati e la mappa!
-        await updateDoc(doc(getCollectionRef(), room.id), updates);
-    };
-
-    return (
-        <div className="min-h-screen bg-slate-950 text-slate-100 flex flex-col p-4 md:p-8">
-            {/* Header */}
-            <div className="shrink-0 mb-6 text-center">
-                <h1 className="text-4xl font-black text-orange-500 tracking-wider">TABELLONE TORNEO</h1>
-                <p className="text-slate-400">Tutti i match e le fasi della competizione</p>
+                    </form>
+                    {error && <p className="text-red-400 mt-4 text-center">{error}</p>}
+                  </div>
+                </div>
+              ) : room.status === 'lobby' ? (
+                <Lobby room={room} user={user} onLeave={leaveRoom} showNotif={showNotif} />
+              ) : room.status === 'tournament_bracket' ? (
+                <TournamentBracket room={room} user={user} showNotif={showNotif} />
+              ) : (
+                <Game room={room} user={user} showNotif={showNotif} />
+              )}
             </div>
+          );
+        }
+
+        // --- LOBBY ---
+        function Lobby({ room, user, onLeave, showNotif }) {
+          const isHost = room.hostId === user.uid;
+          const me = room.players[user.uid];
+          const [filter, setFilter] = useState('All');
+
+          const categories = ['All', 'Alfabetico', ...new Set(CHARACTERS.map(c => c.cat))];
+          
+          let displayedChars = [...CHARACTERS];
+          if (filter === 'Alfabetico') displayedChars.sort((a, b) => a.n.localeCompare(b.n));
+          else if (filter !== 'All') displayedChars = displayedChars.filter(c => c.cat === filter);
+
+          const updateConfig = async (key, val) => {
+            if (!isHost) return;
+            await updateDoc(doc(getCollectionRef(), room.id), { [`config.${key}`]: val });
+          };
+
+          const selectChar = async (charId) => {
+            const isTaken = Object.values(room.players).some(p => p.charId === charId);
+            if (isTaken) return showNotif("Personaggio già preso!");
             
-            {/* Control Panel (Current Match) */}
-            <div className="bg-slate-800 p-6 rounded-3xl border border-slate-700 shadow-2xl mb-8 shrink-0">
-                <h2 className="text-xl font-bold mb-4 text-center text-white">
-                    <span className="text-orange-400">{phase.name}</span> • Match in evidenza ({currentMatch + 1}/{phase.matches.length})
-                </h2>
-                <div className="flex flex-wrap justify-center gap-4 mb-6">
-                    {match.players.map(pid => {
-                        const p = room.players[pid];
-                        const c = CHARACTERS.find(x => x.id === p.charId);
-                        return (
-                            <div key={pid} className="flex flex-col items-center bg-slate-700 p-3 rounded-xl shadow border-b-4 w-32" style={{borderColor: p.color}}>
-                                <img src={c?.i} className="w-14 h-14 rounded-full object-cover mb-2 border-2" style={{borderColor: p.color}} />
-                                <span className="font-bold text-center text-sm truncate w-full" style={{color: p.color}}>{p.n}</span>
-                                {pid === user.uid && <span className="mt-1 bg-emerald-600 text-white text-[10px] px-2 py-0.5 rounded-full">TU SEI QUI</span>}
-                            </div>
-                        );
-                    })}
-                </div>
-                <div className="flex justify-center max-w-xl mx-auto">
-                    {isHost ? (
-                        <div className="flex flex-col sm:flex-row gap-4 w-full">
-                            {isAllBots && (
-                                <button onClick={simulateMatch} className="flex-1 bg-slate-600 hover:bg-slate-500 text-white font-bold py-4 rounded-xl transition-all shadow-md">
-                                    ⚡ Simula e Mostra Risultati
-                                </button>
-                            )}
-                            <button onClick={startMatch} className="flex-1 bg-orange-600 hover:bg-orange-500 text-white font-bold py-4 rounded-xl shadow-[0_0_20px_rgba(249,115,22,0.4)] text-lg transition-all">
-                                {isUserPlaying ? '👉 ENTRA E GIOCA' : '👁️ OSSERVA MATCH'}
-                            </button>
-                        </div>
-                    ) : (
-                        <div className="text-lg text-slate-400 animate-pulse text-center bg-slate-900 px-6 py-4 rounded-xl w-full">
-                            {isUserPlaying ? "L'Host sta per avviare la tua partita..." : "Attendi, l'host sta avviando il tavolo. (Potrai osservare)"}
-                        </div>
-                    )}
-                </div>
-            </div>
+            await updateDoc(doc(getCollectionRef(), room.id), {
+              [`players.${user.uid}.charId`]: charId,
+              [`players.${user.uid}.n`]: CHARACTERS.find(c => c.id === charId).n
+            });
+          };
 
-            {/* Full Bracket Visualization */}
-            <div className="flex-1 bg-slate-800 rounded-3xl border border-slate-700 p-6 overflow-x-auto overflow-y-auto">
-                <div className="flex gap-10 min-w-max h-full">
-                    {phases.map((ph, pIdx) => (
-                        <div key={pIdx} className="flex flex-col gap-6 w-[240px]">
-                            <div className="text-center font-black text-slate-500 uppercase tracking-widest border-b-2 border-slate-700 pb-2">
-                                {ph.name}
-                            </div>
-                            {ph.matches.map((m, mIdx) => {
-                                const isCurrentMatch = pIdx === currentPhase && mIdx === currentMatch;
-                                const isPastMatch = m.completed;
-                                const isFutureMatch = pIdx > currentPhase || (pIdx === currentPhase && mIdx > currentMatch);
-                                
+          const toggleReady = async () => {
+            if (!me?.charId) return showNotif("Scegli un personaggio prima!");
+            await updateDoc(doc(getCollectionRef(), room.id), {
+              [`players.${user.uid}.ready`]: !me.ready
+            });
+          };
+
+          const addBot = async () => {
+            const maxAllowed = room.config.mode === 'tournament' ? room.config.tournamentSize : room.config.players;
+            if (!isHost || room.playerOrder.length >= maxAllowed) return;
+            
+            const botId = `bot_${Math.random().toString(36).substring(2, 7)}`;
+            const color = '#' + Math.floor(Math.random()*16777215).toString(16).padStart(6, '0');
+            
+            const pickedChars = Object.values(room.players).map(p => p.charId).filter(Boolean);
+            const available = CHARACTERS.filter(c => !pickedChars.includes(c.id));
+            const char = available[Math.floor(Math.random() * available.length)];
+
+            await updateDoc(doc(getCollectionRef(), room.id), {
+              [`players.${botId}`]: { id: botId, n: `[BOT] ${char.n}`, isBot: true, color, charId: char.id, ready: true },
+              playerOrder: [...room.playerOrder, botId]
+            });
+          };
+
+          const generateTournamentBot = (existingPlayersObj, existingOrder) => {
+              const botId = `bot_${Math.random().toString(36).substring(2, 7)}`;
+              const color = '#' + Math.floor(Math.random()*16777215).toString(16).padStart(6, '0');
+              const pickedChars = Object.values(existingPlayersObj).map(p => p.charId).filter(Boolean);
+              const available = CHARACTERS.filter(c => !pickedChars.includes(c.id));
+              const char = available[Math.floor(Math.random() * available.length)];
+              
+              return { 
+                  id: botId, 
+                  data: { id: botId, n: `[BOT] ${char.n}`, isBot: true, color, charId: char.id, ready: true } 
+              };
+          };
+
+          const startGame = async () => {
+            if (!isHost) return;
+            const allReady = Object.values(room.players).every(p => p.ready);
+            if (!allReady) return showNotif("Tutti devono essere pronti!");
+
+            if (room.config.mode === 'tournament') {
+                let finalPlayersObj = { ...room.players };
+                let finalPlayerOrder = [ ...room.playerOrder ];
+                
+                while (finalPlayerOrder.length < room.config.tournamentSize) {
+                    const bot = generateTournamentBot(finalPlayersObj, finalPlayerOrder);
+                    finalPlayersObj[bot.id] = bot.data;
+                    finalPlayerOrder.push(bot.id);
+                }
+
+                const shuffledOrder = [...finalPlayerOrder].sort(() => Math.random() - 0.5);
+                const tournamentPhases = buildTournamentTree(room.config.tournamentSize);
+                
+                let playerIdx = 0;
+                const firstPhaseMatchSize = tournamentPhases[0].matchSize;
+                tournamentPhases[0].matches.forEach(match => {
+                    for(let i=0; i < firstPhaseMatchSize; i++) {
+                        if (shuffledOrder[playerIdx]) {
+                            match.players.push(shuffledOrder[playerIdx]);
+                            playerIdx++;
+                        }
+                    }
+                });
+
+                await updateDoc(doc(getCollectionRef(), room.id), {
+                    status: 'tournament_bracket',
+                    players: finalPlayersObj,
+                    playerOrder: finalPlayerOrder,
+                    tournament: {
+                        phases: tournamentPhases,
+                        currentPhase: 0,
+                        currentMatch: 0
+                    }
+                });
+
+            } else {
+                const board = generateBoard(room.config.size, room.config.shape);
+                const spawns = getSpawnPoints(room.config.size, room.playerOrder.length, board);
+                
+                const updates = { status: 'playing', board: board, turnIndex: 0, round: 1, actionState: 'rolling', movesLeft: 0, currentRoll: 0 };
+                room.playerOrder.forEach((pid, idx) => {
+                  updates[`players.${pid}.tiles`] = 1;
+                  updates[`players.${pid}.inventory`] = [];
+                  updates[`players.${pid}.modifier`] = 0;
+                  updates[`players.${pid}.isTrapped`] = false;
+                  if (spawns[idx]) {
+                    updates[`board.${spawns[idx]}`] = { owner: pid, item: null };
+                  }
+                });
+                await updateDoc(doc(getCollectionRef(), room.id), updates);
+            }
+          };
+
+          const maxDisplayPlayers = room.config.mode === 'tournament' ? room.config.tournamentSize : room.config.players;
+
+          return (
+            <div className="max-w-6xl mx-auto p-4 flex flex-col md:flex-row gap-6 h-screen">
+              {/* Sidebar Settings & Players */}
+              <div className="w-full md:w-1/3 flex flex-col gap-4 overflow-y-auto pr-2">
+                <div className="bg-slate-800 p-6 rounded-2xl border border-slate-700">
+                  <div className="flex justify-between items-center mb-4">
+                    <h2 className="text-xl font-bold text-white">Stanza: <span className="text-indigo-400 select-all">{room.id}</span></h2>
+                    <button onClick={onLeave} className="text-red-400 hover:text-red-300 text-sm">Esci</button>
+                  </div>
+                  
+                  {isHost ? (
+                    <div className="space-y-4">
+                      <div>
+                        <label className="block text-sm text-slate-400 mb-1">Modalità Gioco</label>
+                        <div className="flex gap-2">
+                            <button onClick={() => updateConfig('mode', 'standard')} className={`flex-1 py-2 rounded ${room.config.mode==='standard' ? 'bg-indigo-500 text-white font-bold' : 'bg-slate-700 text-slate-300'}`}>Standard</button>
+                            <button onClick={() => updateConfig('mode', 'tournament')} className={`flex-1 py-2 rounded ${room.config.mode==='tournament' ? 'bg-orange-500 text-white font-bold' : 'bg-slate-700 text-slate-300'}`}>Torneo</button>
+                        </div>
+                      </div>
+
+                      {room.config.mode === 'standard' ? (
+                          <div>
+                            <label className="block text-sm text-slate-400 mb-1">Giocatori Max (4-8)</label>
+                            <input type="range" min="4" max="8" value={room.config.players} onChange={(e) => updateConfig('players', parseInt(e.target.value))} className="w-full accent-indigo-500" />
+                            <div className="text-center font-bold">{room.config.players}</div>
+                          </div>
+                      ) : (
+                          <div>
+                            <label className="block text-sm text-slate-400 mb-1">Partecipanti Torneo</label>
+                            <select value={room.config.tournamentSize} onChange={(e) => updateConfig('tournamentSize', parseInt(e.target.value))} className="w-full bg-slate-700 rounded p-2 text-white font-bold">
+                              <option value="8">8 Giocatori (1 Girone)</option>
+                              <option value="16">16 Giocatori (2 Gironi)</option>
+                              <option value="32">32 Giocatori (4 Gironi)</option>
+                              <option value="64">64 Giocatori (8 Gironi)</option>
+                            </select>
+                            <p className="text-xs text-slate-400 mt-1">I posti vuoti verranno riempiti dai Bot all'avvio.</p>
+                          </div>
+                      )}
+
+                      <div>
+                        <label className="block text-sm text-slate-400 mb-1">Regole Invasione</label>
+                        <div className="flex gap-2">
+                            <button onClick={() => updateConfig('invasionMode', false)} className={`flex-1 py-2 rounded ${!room.config.invasionMode ? 'bg-indigo-500 text-white font-bold' : 'bg-slate-700 text-slate-300'}`}>Pacifica</button>
+                            <button onClick={() => updateConfig('invasionMode', true)} className={`flex-1 py-2 rounded ${room.config.invasionMode ? 'bg-red-500 text-white font-bold' : 'bg-slate-700 text-slate-300'}`}>Guerra</button>
+                        </div>
+                        <p className="text-xs text-slate-400 mt-1">
+                          {!room.config.invasionMode ? 'Non puoi rubare le caselle altrui.' : 'Puoi conquistare le caselle nemiche.'}
+                        </p>
+                      </div>
+
+                      <div>
+                        <label className="block text-sm text-slate-400 mb-1">Mappa</label>
+                        <select value={room.config.shape} onChange={(e) => updateConfig('shape', e.target.value)} className="w-full bg-slate-700 rounded p-2 text-white">
+                          <option value="square">Quadrato</option>
+                          <option value="circle">Cerchio</option>
+                          <option value="diamond">Rombo</option>
+                        </select>
+                      </div>
+                      <div>
+                        <label className="block text-sm text-slate-400 mb-1">Grandezza Arena ({room.config.size}x{room.config.size})</label>
+                        <input type="range" min="5" max="18" value={room.config.size} onChange={(e) => updateConfig('size', parseInt(e.target.value))} className="w-full accent-indigo-500" />
+                      </div>
+                      <div>
+                        <label className="block text-sm text-slate-400 mb-1">Rounds per Match ({room.config.maxRounds})</label>
+                        <input type="range" min="5" max="50" value={room.config.maxRounds} onChange={(e) => updateConfig('maxRounds', parseInt(e.target.value))} className="w-full accent-indigo-500" />
+                      </div>
+                      
+                      {room.config.mode === 'standard' && (
+                          <button onClick={addBot} disabled={room.playerOrder.length >= room.config.players} className="w-full bg-slate-700 hover:bg-slate-600 py-2 rounded text-sm disabled:opacity-50">
+                            + Aggiungi Bot NPC
+                          </button>
+                      )}
+                    </div>
+                  ) : (
+                     <div className="text-slate-400 text-sm italic">
+                        In attesa dell'host per le impostazioni...<br/>
+                        Modalità: <strong className="text-white">{room.config.mode === 'tournament' ? 'Torneo' : 'Standard'}</strong><br/>
+                        Invasione: <strong className="text-white">{room.config.invasionMode ? 'Guerra (Ruba caselle)' : 'Pacifica (No furto)'}</strong><br/>
+                        Mappa: {room.config.shape} {room.config.size}x{room.config.size}
+                     </div>
+                  )}
+                </div>
+
+                <div className="bg-slate-800 p-4 rounded-2xl border border-slate-700 flex-grow flex flex-col min-h-0">
+                  <h3 className="font-bold mb-3 shrink-0">Giocatori in Lobby ({room.playerOrder.length}/{maxDisplayPlayers})</h3>
+                  <div className="space-y-2 flex-1 overflow-y-auto pr-2">
+                    {room.playerOrder.map(pid => {
+                      const p = room.players[pid];
+                      const c = CHARACTERS.find(x => x.id === p.charId);
+                      return (
+                        <div key={pid} className="flex items-center p-2 rounded bg-slate-700/50 border-l-4 shrink-0" style={{borderColor: p.color}}>
+                          {c ? <img src={c.i} alt="" className="w-10 h-10 rounded-full object-cover mr-3 border-2 border-slate-600" /> : <div className="w-10 h-10 rounded-full bg-slate-600 mr-3 flex items-center justify-center text-xs">?</div>}
+                          <div className="flex-grow min-w-0">
+                            <div className="font-bold text-sm truncate">{p.n}</div>
+                            <div className="text-xs text-slate-400">{p.ready ? '🟢 Pronto' : '🟡 In scelta...'}</div>
+                          </div>
+                          {isHost && p.isBot && <button onClick={() => updateDoc(doc(getCollectionRef(), room.id), { [`players.${pid}`]: null, playerOrder: room.playerOrder.filter(x => x !== pid) })} className="text-red-400 ml-2">X</button>}
+                        </div>
+                      );
+                    })}
+                  </div>
+
+                  <div className="mt-4 border-t border-slate-700 pt-4 shrink-0">
+                    <h3 className="font-bold mb-2 text-sm text-slate-300">Scegli il tuo Colore</h3>
+                    <div className="flex items-center gap-4">
+                      <input
+                        type="color"
+                        value={me?.color || '#ffffff'}
+                        onChange={(e) => updateDoc(doc(getCollectionRef(), room.id), { [`players.${user.uid}.color`]: e.target.value })}
+                        className="w-16 h-16 rounded cursor-pointer border-2 border-slate-600 bg-slate-900 p-1 shrink-0"
+                        title="Clicca per scegliere un colore"
+                      />
+                      <span className="text-sm text-slate-400 leading-tight">
+                        Clicca sul quadrato per aprire la tavolozza e creare la tinta della tua fazione.
+                      </span>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="flex flex-col gap-2 shrink-0">
+                  <button onClick={toggleReady} className={`w-full py-3 rounded-xl font-bold text-lg shadow-lg transition-all text-white ${me?.ready ? 'bg-red-600 hover:bg-red-500' : 'bg-emerald-600 hover:bg-emerald-500'}`}>
+                    {me?.ready ? 'Annulla Pronto' : 'SONO PRONTO'}
+                  </button>
+                  
+                  {isHost && (
+                    <button onClick={startGame} className={`w-full py-3 rounded-xl font-bold text-lg shadow-lg transition-all ${Object.values(room.players).every(p => p.ready) ? 'bg-indigo-600 hover:bg-indigo-500 text-white' : 'bg-slate-700 text-slate-500 cursor-not-allowed'}`}>
+                      {room.config.mode === 'tournament' ? 'GENERA E AVVIA TORNEO' : 'INIZIA PARTITA'}
+                    </button>
+                  )}
+                </div>
+              </div>
+
+              {/* Roster Personaggi */}
+              <div className="w-full md:w-2/3 bg-slate-800 rounded-2xl border border-slate-700 p-6 flex flex-col h-full overflow-hidden">
+                <h2 className="text-2xl font-black mb-4 shrink-0">Scegli il tuo personaggio</h2>
+                
+                {/* Categories */}
+                <div className="flex gap-2 overflow-x-auto pb-4 mb-4 shrink-0 [&::-webkit-scrollbar]:hidden [-ms-overflow-style:none] [scrollbar-width:none]">
+                  {categories.map(cat => (
+                    <button key={cat} onClick={() => setFilter(cat)} className={`px-4 py-1.5 rounded-full text-sm whitespace-nowrap transition-colors ${filter === cat ? 'bg-indigo-500 text-white' : 'bg-slate-700 text-slate-300 hover:bg-slate-600'}`}>
+                      {cat}
+                    </button>
+                  ))}
+                </div>
+
+                <div className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-5 lg:grid-cols-6 gap-4 overflow-y-auto pr-2 pb-10 flex-1 content-start">
+                  {displayedChars.map(c => {
+                     const isTaken = Object.values(room.players).some(p => p.charId === c.id);
+                     const isMe = me?.charId === c.id;
+                     return (
+                      <div key={c.id} onClick={() => !isTaken && selectChar(c.id)} className={`relative flex flex-col items-center cursor-pointer transition-transform transform hover:scale-105 ${isTaken && !isMe ? 'opacity-30 cursor-not-allowed grayscale' : ''}`}>
+                        <div className={`w-20 h-20 rounded-xl overflow-hidden border-4 ${isMe ? 'border-emerald-500 shadow-[0_0_15px_rgba(16,185,129,0.5)]' : 'border-slate-600'}`}>
+                          <img src={c.i} alt={c.n} className="w-full h-full object-cover" />
+                        </div>
+                        <span className="text-xs font-bold mt-1 text-center truncate w-full">{c.n}</span>
+                        {isTaken && !isMe && <div className="absolute top-8 text-xs bg-red-600 px-2 py-0.5 rounded shadow">Preso</div>}
+                      </div>
+                     )
+                  })}
+                </div>
+              </div>
+            </div>
+          );
+        }
+
+
+        // --- TOURNAMENT BRACKET VIEW ---
+        function TournamentBracket({ room, user, showNotif }) {
+            const isHost = room.hostId === user.uid;
+            const { phases, currentPhase, currentMatch } = room.tournament;
+            
+            if (currentPhase >= phases.length) {
+                const finalPhase = phases[phases.length - 1];
+                const winnerId = finalPhase.matches[0].winners[0];
+                const winner = room.players[winnerId];
+
+                return (
+                    <div className="min-h-screen flex items-center justify-center bg-slate-900 text-white p-4">
+                      <div className="bg-slate-800 p-10 rounded-3xl text-center border-4 border-orange-500 shadow-2xl">
+                          <h1 className="text-6xl font-black text-transparent bg-clip-text bg-gradient-to-r from-yellow-400 to-yellow-600 mb-6">CAMPIONE DEL TORNEO!</h1>
+                          <img src={CHARACTERS.find(c=>c.id===winner.charId)?.i} className="w-40 h-40 rounded-full border-4 border-yellow-400 mx-auto mb-4 object-cover" />
+                          <h2 className="text-4xl font-bold mb-4" style={{color: winner.color}}>{winner.n}</h2>
+                          {isHost && (
+                              <button onClick={() => updateDoc(doc(getCollectionRef(), room.id), {status: 'lobby'})} className="mt-8 bg-indigo-600 px-8 py-3 rounded-xl font-bold">
+                                  Torna alla Lobby
+                              </button>
+                          )}
+                      </div>
+                  </div>
+                );
+            }
+
+            const phase = phases[currentPhase];
+            const match = phase.matches[currentMatch];
+            
+            const isAllBots = match.players.every(pid => room.players[pid].isBot);
+            const isUserPlaying = match.players.includes(user.uid);
+
+            const startMatch = async () => {
+                if (!isHost) return;
+                const matchPlayers = match.players;
+                const dynamicSize = matchPlayers.length >= 8 ? 14 : 10;
+                const board = generateBoard(dynamicSize, room.config.shape);
+                const spawns = getSpawnPoints(dynamicSize, matchPlayers.length, board);
+                
+                const updates = { 
+                    status: 'playing_match', 
+                    board: board, 
+                    turnIndex: 0, 
+                    round: 1, 
+                    actionState: 'rolling', 
+                    movesLeft: 0, 
+                    currentRoll: 0,
+                    currentMatchPlayers: matchPlayers, 
+                    currentMatchSize: dynamicSize 
+                };
+                
+                matchPlayers.forEach((pid, idx) => {
+                  updates[`players.${pid}.tiles`] = 1;
+                  updates[`players.${pid}.inventory`] = [];
+                  updates[`players.${pid}.modifier`] = 0;
+                  updates[`players.${pid}.isTrapped`] = false;
+                  if (spawns[idx]) {
+                    updates[`board.${spawns[idx]}`] = { owner: pid, item: null };
+                  }
+                });
+
+                await updateDoc(doc(getCollectionRef(), room.id), updates);
+            };
+
+            const simulateMatch = async () => {
+                if (!isHost) return;
+                
+                const matchPlayers = match.players;
+                const dynamicSize = matchPlayers.length >= 8 ? 14 : 10;
+                let fakeBoard = generateBoard(dynamicSize, room.config.shape);
+
+                const keys = Object.keys(fakeBoard);
+                keys.forEach(k => {
+                    if (fakeBoard[k]) {
+                        fakeBoard[k].owner = matchPlayers[Math.floor(Math.random() * matchPlayers.length)];
+                    }
+                });
+
+                const tilesCount = {};
+                matchPlayers.forEach(p => tilesCount[p] = 0);
+                Object.values(fakeBoard).forEach(c => { if(c && c.owner) tilesCount[c.owner]++; });
+
+                const updates = {
+                    status: 'match_finished', 
+                    board: fakeBoard,
+                    currentMatchPlayers: matchPlayers,
+                    currentMatchSize: dynamicSize,
+                    turnIndex: 0,
+                    actionState: 'rolling'
+                };
+
+                matchPlayers.forEach(pid => {
+                    updates[`players.${pid}.tiles`] = tilesCount[pid];
+                    updates[`players.${pid}.inventory`] = [];
+                });
+
+                await updateDoc(doc(getCollectionRef(), room.id), updates);
+            };
+
+            return (
+                <div className="min-h-screen bg-slate-950 text-slate-100 flex flex-col p-4 md:p-8">
+                    <div className="shrink-0 mb-6 text-center">
+                        <h1 className="text-4xl font-black text-orange-500 tracking-wider">TABELLONE TORNEO</h1>
+                        <p className="text-slate-400">Tutti i match e le fasi della competizione</p>
+                    </div>
+                    
+                    <div className="bg-slate-800 p-6 rounded-3xl border border-slate-700 shadow-2xl mb-8 shrink-0">
+                        <h2 className="text-xl font-bold mb-4 text-center text-white">
+                            <span className="text-orange-400">{phase.name}</span> • Match in evidenza ({currentMatch + 1}/{phase.matches.length})
+                        </h2>
+                        <div className="flex flex-wrap justify-center gap-4 mb-6">
+                            {match.players.map(pid => {
+                                const p = room.players[pid];
+                                const c = CHARACTERS.find(x => x.id === p.charId);
                                 return (
-                                    <div key={mIdx} className={`relative bg-slate-900 rounded-xl p-3 border-2 transition-all
-                                        ${isCurrentMatch ? 'border-orange-500 shadow-[0_0_15px_rgba(249,115,22,0.5)] scale-105 z-10' : ''}
-                                        ${isPastMatch ? 'border-emerald-600/50 opacity-70' : ''}
-                                        ${isFutureMatch ? 'border-slate-700/50' : ''}
-                                    `}>
-                                        <div className="text-xs text-slate-500 mb-2 font-bold">Match {mIdx + 1}</div>
-                                        <div className="flex flex-col gap-1.5">
-                                            {Array.from({length: ph.matchSize}).map((_, slotIdx) => {
-                                                const pid = m.players[slotIdx];
-                                                const player = pid ? room.players[pid] : null;
-                                                const isWinner = m.winners?.includes(pid);
-                                                const isEliminated = m.completed && !isWinner;
-                                                
-                                                return (
-                                                    <div key={slotIdx} className={`flex items-center gap-2 px-2 py-1 rounded bg-slate-800
-                                                        ${isEliminated ? 'opacity-40 grayscale line-through' : ''}
-                                                        ${isWinner ? 'bg-emerald-900/40 ring-1 ring-emerald-500/50' : ''}
-                                                    `}>
-                                                        {player ? (
-                                                            <>
-                                                                <span className="w-3 h-3 rounded-full shrink-0 shadow-sm" style={{backgroundColor: player.color}}></span>
-                                                                <span className="text-sm font-bold truncate" style={{color: isEliminated ? '#94a3b8' : player.color}}>{player.n}</span>
-                                                            </>
-                                                        ) : (
-                                                            <span className="text-sm text-slate-600 italic px-5">TBD</span>
-                                                        )}
-                                                    </div>
-                                                );
-                                            })}
-                                        </div>
+                                    <div key={pid} className="flex flex-col items-center bg-slate-700 p-3 rounded-xl shadow border-b-4 w-32" style={{borderColor: p.color}}>
+                                        <img src={c?.i} className="w-14 h-14 rounded-full object-cover mb-2 border-2" style={{borderColor: p.color}} />
+                                        <span className="font-bold text-center text-sm truncate w-full" style={{color: p.color}}>{p.n}</span>
+                                        {pid === user.uid && <span className="mt-1 bg-emerald-600 text-white text-[10px] px-2 py-0.5 rounded-full">TU SEI QUI</span>}
                                     </div>
                                 );
                             })}
                         </div>
-                    ))}
+                        <div className="flex justify-center max-w-xl mx-auto">
+                        {isHost ? (
+                            <div className="flex flex-col sm:flex-row gap-4 w-full">
+                                {isAllBots && (
+                                    <button onClick={simulateMatch} className="flex-1 bg-slate-600 hover:bg-slate-500 text-white font-bold py-4 rounded-xl transition-all shadow-md">
+                                        ⚡ Simula e Mostra Risultati
+                                    </button>
+                                )}
+                                <button onClick={startMatch} className="flex-1 bg-orange-600 hover:bg-orange-500 text-white font-bold py-4 rounded-xl shadow-[0_0_20px_rgba(249,115,22,0.4)] text-lg transition-all">
+                                    {isUserPlaying ? '👉 ENTRA E GIOCA' : '👁️ OSSERVA MATCH'}
+                                </button>
+                            </div>
+                        ) : (
+                            <div className="text-lg text-slate-400 animate-pulse text-center bg-slate-900 px-6 py-4 rounded-xl w-full">
+                                {isUserPlaying ? "L'Host sta per avviare la tua partita..." : "Attendi, l'host sta avviando il tavolo. (Potrai osservare)"}
+                            </div>
+                        )}
+                    </div>
+                </div>
+
+                <div className="flex-1 bg-slate-800 rounded-3xl border border-slate-700 p-6 overflow-x-auto overflow-y-auto">
+                    <div className="flex gap-10 min-w-max min-h-full items-stretch">
+                        {phases.map((ph, pIdx) => (
+                            <div key={pIdx} className="flex flex-col w-[260px] relative">
+                                <div className="text-center font-black text-slate-500 uppercase tracking-widest border-b-2 border-slate-700 pb-2 mb-4 shrink-0">
+                                    {ph.name}
+                                </div>
+                                <div className="flex flex-col justify-around flex-1 gap-4">
+                                    {ph.matches.map((m, mIdx) => {
+                                        const isCurrentMatch = pIdx === currentPhase && mIdx === currentMatch;
+                                        const isPastMatch = m.completed;
+                                        const isFutureMatch = pIdx > currentPhase || (pIdx === currentPhase && mIdx > currentMatch);
+                                        
+                                        return (
+                                            <div key={mIdx} className={`relative bg-slate-900 rounded-xl p-3 border-2 transition-all shrink-0
+                                                ${isCurrentMatch ? 'border-orange-500 shadow-[0_0_15px_rgba(249,115,22,0.5)] scale-105 z-10' : ''}
+                                                ${isPastMatch ? 'border-emerald-600/50 opacity-70' : ''}
+                                                ${isFutureMatch ? 'border-slate-700/50' : ''}
+                                            `}>
+                                                {/* Trattini di connessione laterali (stile Bracket) */}
+                                                {pIdx > 0 && <div className="absolute top-1/2 -left-5 w-5 border-t-2 border-slate-600 -z-10"></div>}
+                                                {pIdx < phases.length - 1 && <div className="absolute top-1/2 -right-5 w-5 border-t-2 border-slate-600 -z-10"></div>}
+
+                                                <div className="text-xs text-slate-500 mb-2 font-bold">Match {mIdx + 1}</div>
+                                                <div className="flex flex-col gap-1.5">
+                                                    {Array.from({length: ph.matchSize}).map((_, slotIdx) => {
+                                                        const pid = m.players[slotIdx];
+                                                        const player = pid ? room.players[pid] : null;
+                                                        const char = player ? CHARACTERS.find(c => c.id === player.charId) : null;
+                                                        const isWinner = m.winners?.includes(pid);
+                                                        const isEliminated = m.completed && !isWinner;
+                                                        
+                                                        return (
+                                                            <div key={slotIdx} className={`flex items-center gap-2 px-2 py-1 rounded bg-slate-800
+                                                                ${isEliminated ? 'opacity-40 grayscale line-through' : ''}
+                                                                ${isWinner ? 'bg-emerald-900/40 ring-1 ring-emerald-500/50' : ''}
+                                                            `}>
+                                                                {player ? (
+                                                                    <>
+                                                                        <img src={char?.i} className="w-6 h-6 rounded-full object-cover shrink-0 border" style={{borderColor: player.color}} alt={player.n} />
+                                                                        <span className="text-sm font-bold truncate" style={{color: isEliminated ? '#94a3b8' : player.color}}>{player.n}</span>
+                                                                    </>
+                                                                ) : (
+                                                                    <span className="text-sm text-slate-600 italic px-8">TBD</span>
+                                                                )}
+                                                            </div>
+                                                        );
+                                                    })}
+                                                </div>
+                                            </div>
+                                        );
+                                    })}
+                                </div>
+                            </div>
+                        ))}
+                    </div>
                 </div>
             </div>
-        </div>
-    );
-}
+        );
+    }
 
-// --- GIOCO PRINCIPALE (Modificato per gestire Tornei, Spettatori e Nuovi Strumenti) ---
-function Game({ room, user, showNotif }) {
-  const isHost = room.hostId === user.uid;
-  const matchPlayerOrder = room.status.includes('match') ? room.currentMatchPlayers : room.playerOrder;
-  const boardSize = room.status.includes('match') ? (room.currentMatchSize || room.config.size) : room.config.size;
-  
-  const activePlayerId = matchPlayerOrder[room.turnIndex];
-  const activePlayer = room.players[activePlayerId];
-  
-  const isPlayingThisMatch = matchPlayerOrder.includes(user.uid);
-  const me = isPlayingThisMatch ? room.players[user.uid] : null;
-  const isMyTurn = isPlayingThisMatch && activePlayerId === user.uid;
-  
-  const boardRef = doc(getCollectionRef(), room.id);
+    // --- GIOCO PRINCIPALE ---
+        function Game({ room, user, showNotif }) {
+          const isHost = room.hostId === user.uid;
+          const matchPlayerOrder = room.status.includes('match') ? room.currentMatchPlayers : room.playerOrder;
+          const boardSize = room.status.includes('match') ? (room.currentMatchSize || room.config.size) : room.config.size;
+          
+          const activePlayerId = matchPlayerOrder[room.turnIndex];
+          const activePlayer = room.players[activePlayerId];
+          
+          const isPlayingThisMatch = matchPlayerOrder.includes(user.uid);
+          const me = isPlayingThisMatch ? room.players[user.uid] : null;
+          const isMyTurn = isPlayingThisMatch && activePlayerId === user.uid;
+          
+          const boardRef = doc(getCollectionRef(), room.id);
 
-  // Stato dinamico che indica quale strumento stiamo puntando ('curse', 'terremoto', null)
-  const [targetAction, setTargetAction] = useState(null);
-  const [usingItemSlot, setUsingItemSlot] = useState(null);
-  
-  const isGameEnded = room.status === 'finished' || room.status === 'match_finished';
-  const [showResultsModal, setShowResultsModal] = useState(true);
+          const [targetAction, setTargetAction] = useState(null);
+          const [usingItemSlot, setUsingItemSlot] = useState(null);
+          
+          const isGameEnded = room.status === 'finished' || room.status === 'match_finished';
+          const [showResultsModal, setShowResultsModal] = useState(true);
 
-  useEffect(() => {
-    if (isGameEnded) setShowResultsModal(true);
-  }, [isGameEnded]);
+          useEffect(() => {
+            if (isGameEnded) setShowResultsModal(true);
+          }, [isGameEnded]);
 
-  // --- BOT LOGIC ---
-  useEffect(() => {
-    if (!isHost || !activePlayer?.isBot || !room.status.startsWith('playing')) return;
+          // --- BOT LOGIC ---
+          useEffect(() => {
+            if (!isHost || !activePlayer?.isBot || !room.status.startsWith('playing')) return;
 
-    let timeout;
-    const botPlay = async () => {
-      const updates = {};
-      const playable = getPlayableTiles(activePlayerId, room.board, boardSize, room.config.invasionMode);
-      
-      if (playable.length === 0) {
-        showNotif(`${activePlayer.n} è chiuso e salta il turno!`);
-        await nextTurn();
-        return;
-      }
+            let timeout;
+            const botPlay = async () => {
+              const updates = {};
+              const playable = getPlayableTiles(activePlayerId, room.board, boardSize, room.config.invasionMode);
+              
+              if (playable.length === 0) {
+                showNotif(`${activePlayer.n} è chiuso e salta il turno!`);
+                await nextTurn();
+                return;
+              }
 
-      const baseRoll = Math.floor(Math.random() * 6) + 1;
-      const mod = activePlayer.modifier || 0;
-      const totalRoll = Math.max(1, baseRoll + mod);
-      showNotif(`${activePlayer.n} lancia un ${totalRoll}`);
-      
-      await updateDoc(boardRef, { 
-        actionState: 'moving', currentRoll: totalRoll, movesLeft: totalRoll, [`players.${activePlayerId}.modifier`]: 0 
-      });
+              const baseRoll = Math.floor(Math.random() * 6) + 1;
+              const mod = activePlayer.modifier || 0;
+              const totalRoll = Math.max(1, baseRoll + mod);
+              showNotif(`${activePlayer.n} lancia un ${totalRoll}`);
+              
+              await updateDoc(boardRef, { 
+                actionState: 'moving', currentRoll: totalRoll, movesLeft: totalRoll, [`players.${activePlayerId}.modifier`]: 0 
+              });
 
-      let currentMoves = totalRoll;
-      let currentBoard = { ...room.board };
-      let currentInv = [...(activePlayer.inventory || [])];
+              let currentMoves = totalRoll;
+              let currentBoard = { ...room.board };
+              let currentInv = [...(activePlayer.inventory || [])];
 
-      const makeMove = async () => {
-        if (currentMoves <= 0) {
-          if (currentInv.length > 0) {
-            const item = currentInv[0];
-            if (item === 'turbo') updates[`players.${activePlayerId}.modifier`] = 2;
-            
-            // Logica Bot per il nuovo strumento CONQUISTA
-            if (item === 'conquista') {
-                 const emptyTiles = Object.keys(currentBoard).filter(k => currentBoard[k] && !currentBoard[k].owner);
-                 const toClaim = emptyTiles.sort(() => 0.5 - Math.random()).slice(0, 2);
-                 toClaim.forEach(k => {
-                     currentBoard[k] = { owner: activePlayerId, item: null };
-                     updates[`board.${k}`] = currentBoard[k];
-                 });
-                 updates[`players.${activePlayerId}.tiles`] = Object.values(currentBoard).filter(v => v?.owner === activePlayerId).length;
-            }
+              const makeMove = async () => {
+                if (currentMoves <= 0) {
+                  if (currentInv.length > 0) {
+                    const item = currentInv[0];
+                    if (item === 'turbo') updates[`players.${activePlayerId}.modifier`] = 2;
+                    
+                    if (item === 'conquista') {
+                         const emptyTiles = Object.keys(currentBoard).filter(k => currentBoard[k] && !currentBoard[k].owner);
+                         const toClaim = emptyTiles.sort(() => 0.5 - Math.random()).slice(0, 2);
+                         toClaim.forEach(k => {
+                             currentBoard[k] = { owner: activePlayerId, item: null };
+                             updates[`board.${k}`] = currentBoard[k];
+                         });
+                         updates[`players.${activePlayerId}.tiles`] = Object.values(currentBoard).filter(v => v?.owner === activePlayerId).length;
+                    }
 
-            // Logica Bot per MALEDIZIONE o TERREMOTO
-            if (item === 'curse' || item === 'terremoto') {
-                const enemies = matchPlayerOrder.filter(id => id !== activePlayerId && !room.players[id].isTrapped);
-                if (enemies.length > 0) {
-                    const target = enemies[Math.floor(Math.random() * enemies.length)];
-                    if(item === 'curse') updates[`players.${target}.modifier`] = -2;
-                    if(item === 'terremoto') {
-                        const targetTiles = Object.keys(currentBoard).filter(k => currentBoard[k]?.owner === target);
-                        const toDestroy = targetTiles.sort(() => 0.5 - Math.random()).slice(0, 2);
-                        toDestroy.forEach(k => {
-                            currentBoard[k] = { owner: null, item: null };
-                            updates[`board.${k}`] = currentBoard[k];
-                        });
-                        updates[`players.${target}.tiles`] = Object.values(currentBoard).filter(v => v?.owner === target).length;
+                    if (item === 'curse' || item === 'terremoto') {
+                        const enemies = matchPlayerOrder.filter(id => id !== activePlayerId && !room.players[id].isTrapped);
+                        if (enemies.length > 0) {
+                            const target = enemies[Math.floor(Math.random() * enemies.length)];
+                            if(item === 'curse') updates[`players.${target}.modifier`] = -2;
+                            if(item === 'terremoto') {
+                                const targetTiles = Object.keys(currentBoard).filter(k => currentBoard[k]?.owner === target);
+                                const toDestroy = targetTiles.sort(() => 0.5 - Math.random()).slice(0, 2);
+                                toDestroy.forEach(k => {
+                                    currentBoard[k] = { owner: null, item: null };
+                                    updates[`board.${k}`] = currentBoard[k];
+                                });
+                                updates[`players.${target}.tiles`] = Object.values(currentBoard).filter(v => v?.owner === target).length;
+                            }
+                        }
+                    }
+                    
+                    currentInv.shift(); 
+                    updates[`players.${activePlayerId}.inventory`] = currentInv;
+                  }
+
+                  updates.actionState = 'rolling';
+                  updates.movesLeft = 0;
+                  await updateDoc(boardRef, updates);
+                  await nextTurn();
+                  return;
+                }
+
+                const validMoves = getPlayableTiles(activePlayerId, currentBoard, boardSize, room.config.invasionMode);
+                if (validMoves.length === 0) { await nextTurn(); return; }
+
+                let bestMove = validMoves[0];
+                const withItem = validMoves.find(k => currentBoard[k].item);
+                if (withItem) bestMove = withItem;
+                else bestMove = validMoves[Math.floor(Math.random() * validMoves.length)];
+
+                const pickedItem = currentBoard[bestMove].item;
+                currentBoard[bestMove] = { owner: activePlayerId, item: null };
+                currentMoves--;
+                
+                if (pickedItem && currentInv.length < 2) currentInv.push(pickedItem);
+
+                await updateDoc(boardRef, {
+                  [`board.${bestMove}`]: currentBoard[bestMove],
+                  movesLeft: currentMoves,
+                  [`players.${activePlayerId}.tiles`]: Object.values(currentBoard).filter(v => v?.owner === activePlayerId).length,
+                  [`players.${activePlayerId}.inventory`]: currentInv
+                });
+
+                timeout = setTimeout(makeMove, 600);
+              };
+
+              timeout = setTimeout(makeMove, 1000);
+            };
+
+            botPlay();
+            return () => clearTimeout(timeout);
+          }, [room.turnIndex, isHost, activePlayer?.isBot]);
+
+          const getPlayableTiles = (playerId, currentBoard, size, invasionMode) => {
+            const valid = [];
+            const myTiles = Object.entries(currentBoard).filter(([_, v]) => v?.owner === playerId).map(([k]) => k);
+            myTiles.forEach(tile => {
+              const [x, y] = tile.split(',').map(Number);
+              const adjs = [`${x+1},${y}`, `${x-1},${y}`, `${x},${y+1}`, `${x},${y-1}`];
+              adjs.forEach(adj => {
+                if (currentBoard[adj] !== undefined && !valid.includes(adj)) {
+                    const cellOwner = currentBoard[adj].owner;
+                    if (invasionMode) {
+                        if (cellOwner !== playerId) valid.push(adj);
+                    } else {
+                        if (cellOwner === null) valid.push(adj);
                     }
                 }
-            }
+              });
+            });
+            return valid;
+          };
+
+          const nextTurn = async (extraTurn = false) => {
+             let nextIdx = extraTurn ? room.turnIndex : (room.turnIndex + 1) % matchPlayerOrder.length;
+             let nextRound = room.round;
+             
+             if (!extraTurn && nextIdx === 0) nextRound++;
+
+             const totalTiles = Object.keys(room.board).length;
+             const ownedTiles = Object.values(room.board).filter(v => v?.owner).length;
+             
+             if (nextRound > room.config.maxRounds || ownedTiles >= totalTiles) {
+                 await updateDoc(boardRef, { status: room.status.includes('match') ? 'match_finished' : 'finished' });
+                 return;
+             }
+
+             await updateDoc(boardRef, {
+                 turnIndex: nextIdx, round: nextRound, actionState: 'rolling', movesLeft: 0, currentRoll: 0
+             });
+          };
+
+          const rollDice = async () => {
+            if (!isMyTurn || room.actionState !== 'rolling' || isGameEnded) return;
             
-            currentInv.shift(); // Il Bot consuma l'oggetto usato
-            updates[`players.${activePlayerId}.inventory`] = currentInv;
-          }
+            const base = Math.floor(Math.random() * 6) + 1;
+            const mod = activePlayer.modifier || 0;
+            const total = Math.max(1, base + mod);
 
-          updates.actionState = 'rolling';
-          updates.movesLeft = 0;
-          await updateDoc(boardRef, updates);
-          await nextTurn();
-          return;
-        }
-
-        const validMoves = getPlayableTiles(activePlayerId, currentBoard, boardSize, room.config.invasionMode);
-        if (validMoves.length === 0) { await nextTurn(); return; }
-
-        let bestMove = validMoves[0];
-        const withItem = validMoves.find(k => currentBoard[k].item);
-        if (withItem) bestMove = withItem;
-        else bestMove = validMoves[Math.floor(Math.random() * validMoves.length)];
-
-        const pickedItem = currentBoard[bestMove].item;
-        currentBoard[bestMove] = { owner: activePlayerId, item: null };
-        currentMoves--;
-        
-        if (pickedItem && currentInv.length < 2) currentInv.push(pickedItem);
-
-        await updateDoc(boardRef, {
-          [`board.${bestMove}`]: currentBoard[bestMove],
-          movesLeft: currentMoves,
-          [`players.${activePlayerId}.tiles`]: Object.values(currentBoard).filter(v => v?.owner === activePlayerId).length,
-          [`players.${activePlayerId}.inventory`]: currentInv
-        });
-
-        timeout = setTimeout(makeMove, 600);
-      };
-
-      timeout = setTimeout(makeMove, 1000);
-    };
-
-    botPlay();
-    return () => clearTimeout(timeout);
-  }, [room.turnIndex, isHost, activePlayer?.isBot]);
-
-  const getPlayableTiles = (playerId, currentBoard, size, invasionMode) => {
-    const valid = [];
-    const myTiles = Object.entries(currentBoard).filter(([_, v]) => v?.owner === playerId).map(([k]) => k);
-    myTiles.forEach(tile => {
-      const [x, y] = tile.split(',').map(Number);
-      const adjs = [`${x+1},${y}`, `${x-1},${y}`, `${x},${y+1}`, `${x},${y-1}`];
-      adjs.forEach(adj => {
-        if (currentBoard[adj] !== undefined && !valid.includes(adj)) {
-            const cellOwner = currentBoard[adj].owner;
-            if (invasionMode) {
-                if (cellOwner !== playerId) valid.push(adj);
-            } else {
-                if (cellOwner === null) valid.push(adj);
+            const playable = getPlayableTiles(user.uid, room.board, boardSize, room.config.invasionMode);
+            if (playable.length === 0) {
+                showNotif("Sei chiuso! Salti il turno.");
+                await updateDoc(boardRef, { [`players.${user.uid}.isTrapped`]: true });
+                nextTurn();
+                return;
             }
-        }
-      });
-    });
-    return valid;
-  };
 
-  const nextTurn = async (extraTurn = false) => {
-     let nextIdx = extraTurn ? room.turnIndex : (room.turnIndex + 1) % matchPlayerOrder.length;
-     let nextRound = room.round;
-     
-     if (!extraTurn && nextIdx === 0) nextRound++;
+            await updateDoc(boardRef, { actionState: 'moving', currentRoll: total, movesLeft: total, [`players.${user.uid}.modifier`]: 0 });
+          };
 
-     const totalTiles = Object.keys(room.board).length;
-     const ownedTiles = Object.values(room.board).filter(v => v?.owner).length;
-     
-     if (nextRound > room.config.maxRounds || ownedTiles >= totalTiles) {
-         await updateDoc(boardRef, { status: room.status.includes('match') ? 'match_finished' : 'finished' });
-         return;
-     }
+          const clickTile = async (key) => {
+            if (!isMyTurn || room.actionState !== 'moving' || room.movesLeft <= 0 || isGameEnded) return;
+            
+            const playable = getPlayableTiles(user.uid, room.board, boardSize, room.config.invasionMode);
+            if (!playable.includes(key)) return;
 
-     await updateDoc(boardRef, {
-         turnIndex: nextIdx, round: nextRound, actionState: 'rolling', movesLeft: 0, currentRoll: 0
-     });
-  };
+            const cell = room.board[key];
+            let newInv = [...(activePlayer.inventory || [])];
+            
+            if (cell.item && newInv.length < 2) {
+                newInv.push(cell.item);
+                const foundItem = ITEMS.find(i=>i.id === cell.item);
+                if (foundItem) showNotif(`Hai trovato: ${foundItem.n}!`);
+            }
 
-  const rollDice = async () => {
-    if (!isMyTurn || room.actionState !== 'rolling' || isGameEnded) return;
-    
-    const base = Math.floor(Math.random() * 6) + 1;
-    const mod = activePlayer.modifier || 0;
-    const total = Math.max(1, base + mod);
+            const updates = {
+                [`board.${key}`]: { owner: user.uid, item: null },
+                movesLeft: room.movesLeft - 1,
+                [`players.${user.uid}.inventory`]: newInv
+            };
 
-    const playable = getPlayableTiles(user.uid, room.board, boardSize, room.config.invasionMode);
-    if (playable.length === 0) {
-        showNotif("Sei chiuso! Salti il turno.");
-        await updateDoc(boardRef, { [`players.${user.uid}.isTrapped`]: true });
-        nextTurn();
-        return;
-    }
+            const newBoard = {...room.board, [key]: { owner: user.uid, item: null }};
+            updates[`players.${user.uid}.tiles`] = Object.values(newBoard).filter(v => v?.owner === user.uid).length;
 
-    await updateDoc(boardRef, { actionState: 'moving', currentRoll: total, movesLeft: total, [`players.${user.uid}.modifier`]: 0 });
-  };
+            await updateDoc(boardRef, updates);
 
-  const clickTile = async (key) => {
-    if (!isMyTurn || room.actionState !== 'moving' || room.movesLeft <= 0 || isGameEnded) return;
-    
-    const playable = getPlayableTiles(user.uid, room.board, boardSize, room.config.invasionMode);
-    if (!playable.includes(key)) return;
+            const newPlayable = getPlayableTiles(user.uid, newBoard, boardSize, room.config.invasionMode);
+            if (room.movesLeft - 1 === 0 || newPlayable.length === 0) {
+                await updateDoc(boardRef, { actionState: 'items_or_end' });
+            }
+          };
 
-    const cell = room.board[key];
-    let newInv = [...(activePlayer.inventory || [])];
-    
-    if (cell.item && newInv.length < 2) {
-        newInv.push(cell.item);
-        const foundItem = ITEMS.find(i=>i.id === cell.item);
-        if (foundItem) showNotif(`Hai trovato: ${foundItem.n}!`);
-    }
+          const endTurnBtn = () => nextTurn();
 
-    const updates = {
-        [`board.${key}`]: { owner: user.uid, item: null },
-        movesLeft: room.movesLeft - 1,
-        [`players.${user.uid}.inventory`]: newInv
-    };
+          const useItem = async (slotIdx, itemId) => {
+              if (!isMyTurn || isGameEnded) return;
+              
+              if (itemId === 'turbo') {
+                  await updateDoc(boardRef, { [`players.${user.uid}.modifier`]: 2 });
+                  consumeItem(slotIdx);
+                  showNotif("Turbo attivato! +2 al prossimo lancio.");
+              } 
+              else if (itemId === 'jackpot' && room.actionState === 'items_or_end') {
+                  consumeItem(slotIdx);
+                  showNotif("JACKPOT! Giochi di nuovo!");
+                  nextTurn(true); 
+              } 
+              else if (itemId === 'conquista') {
+                  let currentBoard = { ...room.board };
+                  const emptyTiles = Object.keys(currentBoard).filter(k => currentBoard[k] && !currentBoard[k].owner);
+                  if (emptyTiles.length === 0) return showNotif("Non ci sono caselle libere da conquistare!");
+                  
+                  const toClaim = emptyTiles.sort(() => 0.5 - Math.random()).slice(0, 2);
+                  const updates = {};
+                  toClaim.forEach(k => {
+                      currentBoard[k] = { owner: user.uid, item: null };
+                      updates[`board.${k}`] = currentBoard[k];
+                  });
+                  updates[`players.${user.uid}.tiles`] = Object.values(currentBoard).filter(v => v?.owner === user.uid).length;
+                  
+                  await updateDoc(boardRef, updates);
+                  consumeItem(slotIdx);
+                  showNotif("Hai conquistato nuovi territori!");
+              }
+              else if (itemId === 'curse' || itemId === 'terremoto') {
+                  setTargetAction(itemId);
+                  setUsingItemSlot(slotIdx);
+                  showNotif(`Seleziona un bersaglio dalla classifica per ${ITEMS.find(i=>i.id===itemId)?.n || ''}`);
+              } 
+              else {
+                  showNotif("Non puoi usare questo oggetto ora.");
+              }
+          };
 
-    const newBoard = {...room.board, [key]: { owner: user.uid, item: null }};
-    updates[`players.${user.uid}.tiles`] = Object.values(newBoard).filter(v => v?.owner === user.uid).length;
+          const applyTargetItem = async (targetId) => {
+              if (targetId === user.uid) return showNotif("Non puoi selezionare te stesso!");
+              
+              if (targetAction === 'curse') {
+                  await updateDoc(boardRef, { [`players.${targetId}.modifier`]: -2 });
+                  consumeItem(usingItemSlot);
+                  showNotif(`Maledizione lanciata su ${room.players[targetId].n}!`);
+              } 
+              else if (targetAction === 'terremoto') {
+                  let currentBoard = { ...room.board };
+                  const targetTiles = Object.keys(currentBoard).filter(k => currentBoard[k]?.owner === targetId);
+                  
+                  if (targetTiles.length === 0) return showNotif("Questo giocatore non ha più territori!");
+                  
+                  const toDestroy = targetTiles.sort(() => 0.5 - Math.random()).slice(0, 2);
+                  const updates = {};
+                  toDestroy.forEach(k => {
+                      currentBoard[k] = { owner: null, item: null }; 
+                      updates[`board.${k}`] = currentBoard[k];
+                  });
+                  updates[`players.${targetId}.tiles`] = Object.values(currentBoard).filter(v => v?.owner === targetId).length;
+                  
+                  await updateDoc(boardRef, updates);
+                  consumeItem(usingItemSlot);
+                  showNotif(`Hai distrutto le caselle di ${room.players[targetId].n}!`);
+              }
+              
+              setTargetAction(null);
+          };
 
-    await updateDoc(boardRef, updates);
+          const consumeItem = async (slotIdx) => {
+              const newInv = [...activePlayer.inventory];
+              newInv.splice(slotIdx, 1);
+              await updateDoc(boardRef, { [`players.${user.uid}.inventory`]: newInv });
+          };
 
-    const newPlayable = getPlayableTiles(user.uid, newBoard, boardSize, room.config.invasionMode);
-    if (room.movesLeft - 1 === 0 || newPlayable.length === 0) {
-        await updateDoc(boardRef, { actionState: 'items_or_end' });
-    }
-  };
+          const playableTiles = useMemo(() => isMyTurn && room.actionState === 'moving' && !isGameEnded ? getPlayableTiles(user.uid, room.board, boardSize, room.config.invasionMode) : [], [isMyTurn, room.actionState, room.board, boardSize, user.uid, isGameEnded, room.config.invasionMode]);
+          const leaderboard = matchPlayerOrder.map(id => room.players[id]).sort((a, b) => (b.tiles||0) - (a.tiles||0));
+          const iconSizeClass = boardSize > 14 ? 'text-xs md:text-sm' : (boardSize > 10 ? 'text-base md:text-lg' : 'text-xl md:text-3xl');
 
-  const endTurnBtn = () => nextTurn();
+          const isTournament = room.status === 'match_finished';
+          let winnersCount = 1;
+          if (isTournament) {
+              winnersCount = matchPlayerOrder.length >= 8 ? 4 : 2;
+              if (room.tournament?.currentPhase === room.tournament?.phases.length - 1) winnersCount = 1;
+          }
+          const topPlayers = leaderboard.slice(0, winnersCount);
+          const eliminatedPlayers = leaderboard.slice(winnersCount);
+          const topPlayerIds = topPlayers.map(p => p.id);
 
-  // --- LOGICA STRUMENTI E BERSAGLI ---
-  const useItem = async (slotIdx, itemId) => {
-      if (!isMyTurn || isGameEnded) return;
-      
-      if (itemId === 'turbo') {
-          await updateDoc(boardRef, { [`players.${user.uid}.modifier`]: 2 });
-          consumeItem(slotIdx);
-          showNotif("Turbo attivato! +2 al prossimo lancio.");
-      } 
-      else if (itemId === 'jackpot' && room.actionState === 'items_or_end') {
-          consumeItem(slotIdx);
-          showNotif("JACKPOT! Giochi di nuovo!");
-          nextTurn(true); 
-      } 
-      else if (itemId === 'conquista') {
-          // Logica Conquista immediata
-          let currentBoard = { ...room.board };
-          const emptyTiles = Object.keys(currentBoard).filter(k => currentBoard[k] && !currentBoard[k].owner);
-          if (emptyTiles.length === 0) return showNotif("Non ci sono caselle libere da conquistare!");
-          
-          const toClaim = emptyTiles.sort(() => 0.5 - Math.random()).slice(0, 2);
-          const updates = {};
-          toClaim.forEach(k => {
-              currentBoard[k] = { owner: user.uid, item: null };
-              updates[`board.${k}`] = currentBoard[k];
-          });
-          updates[`players.${user.uid}.tiles`] = Object.values(currentBoard).filter(v => v?.owner === user.uid).length;
-          
-          await updateDoc(boardRef, updates);
-          consumeItem(slotIdx);
-          showNotif("Hai conquistato nuovi territori!");
-      }
-      else if (itemId === 'curse' || itemId === 'terremoto') {
-          // Attiva la modalità selezione bersaglio
-          setTargetAction(itemId);
-          setUsingItemSlot(slotIdx);
-          showNotif(`Seleziona un bersaglio dalla classifica per ${ITEMS.find(i=>i.id===itemId)?.n || ''}`);
-      } 
-      else {
-          showNotif("Non puoi usare questo oggetto ora.");
-      }
-  };
+          return (
+            <div className="h-screen flex flex-col bg-slate-900 text-slate-100 overflow-hidden relative">
+              
+              {/* SCHERMATA RISULTATI */}
+              {isGameEnded && showResultsModal && (
+                  <div className="absolute inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-md">
+                      <div className="bg-slate-800 p-6 md:p-10 rounded-3xl border border-slate-600 shadow-2xl max-w-4xl w-full max-h-full overflow-y-auto flex flex-col items-center">
+                          <h1 className="text-4xl md:text-5xl font-black text-center mb-8 text-transparent bg-clip-text bg-gradient-to-r from-yellow-400 to-yellow-600">
+                              {isTournament ? 'RISULTATI DEL MATCH' : 'FINE PARTITA!'}
+                          </h1>
 
-  const applyTargetItem = async (targetId) => {
-      if (targetId === user.uid) return showNotif("Non puoi selezionare te stesso!");
-      
-      if (targetAction === 'curse') {
-          await updateDoc(boardRef, { [`players.${targetId}.modifier`]: -2 });
-          consumeItem(usingItemSlot);
-          showNotif(`Maledizione lanciata su ${room.players[targetId].n}!`);
-      } 
-      else if (targetAction === 'terremoto') {
-          let currentBoard = { ...room.board };
-          const targetTiles = Object.keys(currentBoard).filter(k => currentBoard[k]?.owner === targetId);
-          
-          if (targetTiles.length === 0) return showNotif("Questo giocatore non ha più territori!");
-          
-          // Prendi 2 territori casuali del nemico e resettali
-          const toDestroy = targetTiles.sort(() => 0.5 - Math.random()).slice(0, 2);
-          const updates = {};
-          toDestroy.forEach(k => {
-              currentBoard[k] = { owner: null, item: null }; // Tornano neutrali
-              updates[`board.${k}`] = currentBoard[k];
-          });
-          updates[`players.${targetId}.tiles`] = Object.values(currentBoard).filter(v => v?.owner === targetId).length;
-          
-          await updateDoc(boardRef, updates);
-          consumeItem(usingItemSlot);
-          showNotif(`Hai distrutto le caselle di ${room.players[targetId].n}!`);
-      }
-      
-      setTargetAction(null); // Chiudi modalità bersaglio
-  };
-
-  const consumeItem = async (slotIdx) => {
-      const newInv = [...activePlayer.inventory];
-      newInv.splice(slotIdx, 1);
-      await updateDoc(boardRef, { [`players.${user.uid}.inventory`]: newInv });
-  };
-
-  // --- RENDERING VARIABILI ---
-  const playableTiles = useMemo(() => isMyTurn && room.actionState === 'moving' && !isGameEnded ? getPlayableTiles(user.uid, room.board, boardSize, room.config.invasionMode) : [], [isMyTurn, room.actionState, room.board, boardSize, user.uid, isGameEnded, room.config.invasionMode]);
-  const leaderboard = matchPlayerOrder.map(id => room.players[id]).sort((a, b) => (b.tiles||0) - (a.tiles||0));
-  const iconSizeClass = boardSize > 14 ? 'text-xs md:text-sm' : (boardSize > 10 ? 'text-base md:text-lg' : 'text-xl md:text-3xl');
-
-  // Variabili Classifica
-  const isTournament = room.status === 'match_finished';
-  let winnersCount = 1;
-  if (isTournament) {
-      winnersCount = matchPlayerOrder.length >= 8 ? 4 : 2;
-      if (room.tournament?.currentPhase === room.tournament?.phases.length - 1) winnersCount = 1;
-  }
-  const topPlayers = leaderboard.slice(0, winnersCount);
-  const eliminatedPlayers = leaderboard.slice(winnersCount);
-  const topPlayerIds = topPlayers.map(p => p.id);
-
-  return (
-    <div className="h-screen flex flex-col bg-slate-900 text-slate-100 overflow-hidden relative">
-      
-      {/* SCHERMATA RISULTATI MODALE / OVERLAY */}
-      {isGameEnded && showResultsModal && (
-          <div className="absolute inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-md">
-              <div className="bg-slate-800 p-6 md:p-10 rounded-3xl border border-slate-600 shadow-2xl max-w-4xl w-full max-h-full overflow-y-auto flex flex-col items-center">
-                  <h1 className="text-4xl md:text-5xl font-black text-center mb-8 text-transparent bg-clip-text bg-gradient-to-r from-yellow-400 to-yellow-600">
-                      {isTournament ? 'RISULTATI DEL MATCH' : 'FINE PARTITA!'}
-                  </h1>
-
-                  {isTournament ? (
-                      <div className="flex flex-col md:flex-row gap-6 w-full">
-                          {/* Qualificati */}
-                          <div className="flex-1 bg-emerald-900/20 p-6 rounded-2xl border border-emerald-500/30">
-                              <h3 className="text-xl text-emerald-400 font-black mb-4 text-center tracking-wide">QUALIFICATI</h3>
-                              <div className="grid gap-3">
-                                  {topPlayers.map((p, idx) => (
-                                      <div key={p.id} className="flex items-center gap-4 bg-emerald-900/40 p-3 rounded-xl border border-emerald-500/50 shadow-sm">
-                                          <div className="font-bold text-emerald-500 w-4">{idx+1}</div>
-                                          <img src={CHARACTERS.find(c=>c.id===p.charId)?.i} className="w-12 h-12 rounded-full border-2 object-cover shrink-0" style={{borderColor: p.color}} />
-                                          <div className="flex-1 min-w-0">
-                                              <div className="font-bold truncate" style={{color: p.color}}>{p.n}</div>
-                                              <div className="text-xs text-emerald-200/70">{p.tiles} territori</div>
+                          {isTournament ? (
+                              <div className="flex flex-col md:flex-row gap-6 w-full">
+                                  <div className="flex-1 bg-emerald-900/20 p-6 rounded-2xl border border-emerald-500/30">
+                                      <h3 className="text-xl text-emerald-400 font-black mb-4 text-center tracking-wide">QUALIFICATI</h3>
+                                      <div className="grid gap-3">
+                                          {topPlayers.map((p, idx) => (
+                                              <div key={p.id} className="flex items-center gap-4 bg-emerald-900/40 p-3 rounded-xl border border-emerald-500/50 shadow-sm">
+                                                  <div className="font-bold text-emerald-500 w-4">{idx+1}</div>
+                                                  <img src={CHARACTERS.find(c=>c.id===p.charId)?.i} className="w-12 h-12 rounded-full border-2 object-cover shrink-0" style={{borderColor: p.color}} />
+                                                  <div className="flex-1 min-w-0">
+                                                      <div className="font-bold truncate" style={{color: p.color}}>{p.n}</div>
+                                                      <div className="text-xs text-emerald-200/70">{p.tiles} territori</div>
+                                                  </div>
+                                              </div>
+                                          ))}
+                                      </div>
+                                  </div>
+                                  
+                                  {eliminatedPlayers.length > 0 && (
+                                      <div className="flex-1 bg-red-900/20 p-6 rounded-2xl border border-red-500/30">
+                                          <h3 className="text-xl text-red-400 font-black mb-4 text-center tracking-wide">ELIMINATI</h3>
+                                          <div className="grid gap-3 opacity-80">
+                                              {eliminatedPlayers.map((p, idx) => (
+                                                  <div key={p.id} className="flex items-center gap-4 bg-red-900/40 p-3 rounded-xl border border-red-500/30 grayscale">
+                                                      <div className="font-bold text-red-500/50 w-4">{idx+1+winnersCount}</div>
+                                                      <img src={CHARACTERS.find(c=>c.id===p.charId)?.i} className="w-12 h-12 rounded-full border-2 object-cover shrink-0 border-slate-600" />
+                                                      <div className="flex-1 min-w-0">
+                                                          <div className="font-bold truncate text-slate-400">{p.n}</div>
+                                                          <div className="text-xs text-red-200/50">{p.tiles} territori</div>
+                                                      </div>
+                                                  </div>
+                                              ))}
                                           </div>
                                       </div>
-                                  ))}
+                                  )}
                               </div>
-                          </div>
-                          
-                          {/* Eliminati */}
-                          {eliminatedPlayers.length > 0 && (
-                              <div className="flex-1 bg-red-900/20 p-6 rounded-2xl border border-red-500/30">
-                                  <h3 className="text-xl text-red-400 font-black mb-4 text-center tracking-wide">ELIMINATI</h3>
-                                  <div className="grid gap-3 opacity-80">
-                                      {eliminatedPlayers.map((p, idx) => (
-                                          <div key={p.id} className="flex items-center gap-4 bg-red-900/40 p-3 rounded-xl border border-red-500/30 grayscale">
-                                              <div className="font-bold text-red-500/50 w-4">{idx+1+winnersCount}</div>
-                                              <img src={CHARACTERS.find(c=>c.id===p.charId)?.i} className="w-12 h-12 rounded-full border-2 object-cover shrink-0 border-slate-600" />
-                                              <div className="flex-1 min-w-0">
-                                                  <div className="font-bold truncate text-slate-400">{p.n}</div>
-                                                  <div className="text-xs text-red-200/50">{p.tiles} territori</div>
+                          ) : (
+                              <div className="flex flex-col items-center w-full">
+                                  <h2 className="text-3xl font-bold mb-6 text-yellow-400">Classifica Finale</h2>
+                                  <div className="w-full max-w-lg bg-slate-900/60 rounded-2xl p-4 md:p-6 grid gap-4 border border-slate-700">
+                                      {leaderboard.map((p, idx) => (
+                                          <div key={p.id} className={`flex items-center gap-4 bg-slate-800 p-3 md:p-4 rounded-xl border-2 transition-all ${idx === 0 ? 'border-yellow-400 shadow-[0_0_20px_rgba(250,204,21,0.4)] scale-105' : 'border-slate-700'}`}>
+                                              <div className={`font-black w-8 text-center ${idx === 0 ? 'text-yellow-400 text-3xl' : 'text-slate-500 text-xl'}`}>{idx+1}°</div>
+                                              <img src={CHARACTERS.find(c=>c.id===p.charId)?.i} className={`w-14 h-14 rounded-full object-cover shrink-0 ${idx === 0 ? 'border-4 border-yellow-400' : 'border-2 border-slate-600'}`} style={idx !== 0 ? {borderColor: p.color} : {}} />
+                                              <div className="flex-1 min-w-0 text-left">
+                                                  <div className="font-bold truncate text-xl" style={{color: p.color}}>{p.n}</div>
+                                                  <div className="text-sm text-slate-400">{p.tiles} territori conquistati</div>
                                               </div>
+                                              {idx === 0 && <div className="text-4xl animate-bounce">🏆</div>}
                                           </div>
                                       ))}
                                   </div>
                               </div>
                           )}
-                      </div>
-                  ) : (
-                      // NUOVA CLASSIFICA COMPLETA MODALITÀ STANDARD
-                      <div className="flex flex-col items-center w-full">
-                          <h2 className="text-3xl font-bold mb-6 text-yellow-400">Classifica Finale</h2>
-                          <div className="w-full max-w-lg bg-slate-900/60 rounded-2xl p-4 md:p-6 grid gap-4 border border-slate-700">
-                              {leaderboard.map((p, idx) => (
-                                  <div key={p.id} className={`flex items-center gap-4 bg-slate-800 p-3 md:p-4 rounded-xl border-2 transition-all ${idx === 0 ? 'border-yellow-400 shadow-[0_0_20px_rgba(250,204,21,0.4)] scale-105' : 'border-slate-700'}`}>
-                                      <div className={`font-black w-8 text-center ${idx === 0 ? 'text-yellow-400 text-3xl' : 'text-slate-500 text-xl'}`}>{idx+1}°</div>
-                                      <img src={CHARACTERS.find(c=>c.id===p.charId)?.i} className={`w-14 h-14 rounded-full object-cover shrink-0 ${idx === 0 ? 'border-4 border-yellow-400' : 'border-2 border-slate-600'}`} style={idx !== 0 ? {borderColor: p.color} : {}} />
-                                      <div className="flex-1 min-w-0 text-left">
-                                          <div className="font-bold truncate text-xl" style={{color: p.color}}>{p.n}</div>
-                                          <div className="text-sm text-slate-400">{p.tiles} territori conquistati</div>
-                                      </div>
-                                      {idx === 0 && <div className="text-4xl animate-bounce">🏆</div>}
-                                  </div>
-                              ))}
+
+                          <div className="mt-10 flex flex-col sm:flex-row justify-center items-center gap-4 w-full">
+                              <button 
+                                  onClick={() => setShowResultsModal(false)} 
+                                  className="w-full sm:w-auto px-6 py-3 rounded-xl font-bold bg-slate-700 hover:bg-slate-600 transition-colors border border-slate-500"
+                              >
+                                  👁️ Osserva Mappa Finale
+                              </button>
+                              
+                              {isHost && (
+                                  <button 
+                                      onClick={() => isTournament ? handleTournamentMatchEnd(room, topPlayerIds) : updateDoc(boardRef, {status: 'lobby'})} 
+                                      className="w-full sm:w-auto px-8 py-3 rounded-xl font-black bg-orange-600 hover:bg-orange-500 transition-colors shadow-lg"
+                                  >
+                                      {isTournament ? 'Ritorna al Tabellone Torneo' : 'Torna alla Lobby'}
+                                  </button>
+                              )}
+                              {!isHost && isTournament && <span className="text-slate-400 animate-pulse text-sm">In attesa dell'Host...</span>}
                           </div>
                       </div>
-                  )}
+                  </div>
+              )}
 
-                  <div className="mt-10 flex flex-col sm:flex-row justify-center items-center gap-4 w-full">
-                      <button 
-                          onClick={() => setShowResultsModal(false)} 
-                          className="w-full sm:w-auto px-6 py-3 rounded-xl font-bold bg-slate-700 hover:bg-slate-600 transition-colors border border-slate-500"
+              {isGameEnded && !showResultsModal && (
+                  <button 
+                      onClick={() => setShowResultsModal(true)} 
+                      className="absolute bottom-6 left-1/2 transform -translate-x-1/2 z-40 bg-slate-800/90 backdrop-blur px-8 py-4 rounded-full font-black text-lg shadow-[0_0_20px_rgba(0,0,0,0.8)] border-2 border-indigo-500 text-white hover:bg-slate-700 transition-all hover:scale-105"
+                  >
+                      🔙 TORNA AI RISULTATI
+                  </button>
+              )}
+
+              <div className="bg-slate-800 p-3 shadow-md flex justify-between items-center z-10 border-b border-slate-700">
+                  <div className="flex items-center gap-4">
+                      <div className="text-xl font-bold bg-slate-700 px-4 py-2 rounded-lg">
+                          {isGameEnded ? 'FINE PARTITA' : `Round ${room.round}/${room.config.maxRounds}`}
+                      </div>
+                      {room.config.mode === 'tournament' && (
+                          <div className="text-orange-400 font-bold bg-slate-900 px-3 py-1 rounded border border-orange-500/50">TORNEO</div>
+                      )}
+                  </div>
+                  
+                  <div className="flex gap-2 overflow-x-auto mx-4 scrollbar-hide">
+                      {matchPlayerOrder.map((pid, idx) => {
+                          const p = room.players[pid];
+                          const c = CHARACTERS.find(x => x.id === p.charId);
+                          const isActive = idx === room.turnIndex && !isGameEnded;
+                          return (
+                              <div key={pid} className={`relative transition-all duration-300 ${isActive ? 'transform scale-110 z-10' : 'opacity-60 scale-90'}`}>
+                                  <img src={c?.i} className={`w-14 h-14 rounded-full border-4 object-cover ${isActive ? 'animate-pulse shadow-[0_0_15px_currentColor]' : ''}`} style={{borderColor: p.color, color: p.color}} />
+                                  {p.modifier !== 0 && <span className="absolute -top-2 -right-2 bg-slate-900 rounded-full w-6 h-6 flex items-center justify-center text-xs font-bold border border-slate-600">{p.modifier>0?'+'+p.modifier:p.modifier}</span>}
+                              </div>
+                          )
+                      })}
+                  </div>
+                  <div className="text-right flex flex-col items-end">
+                     <span className="text-sm text-slate-400">{isGameEnded ? 'Vincitore:' : 'Tocca a:'}</span>
+                     <span className="text-xl font-black" style={{color: isGameEnded ? leaderboard[0].color : activePlayer?.color}}>
+                         {isGameEnded ? leaderboard[0].n : `${activePlayer?.n} ${activePlayer?.isBot ? '(BOT)' : ''}`}
+                     </span>
+                  </div>
+              </div>
+
+              <div className="flex flex-1 overflow-hidden">
+                  <div className="flex-1 w-full h-full relative bg-slate-950 flex flex-col items-center justify-center p-2 md:p-6 overflow-hidden min-h-0 min-w-0">
+                      
+                      {targetAction !== null && !isGameEnded && (
+                          <div className="absolute inset-0 z-20 bg-black/50 flex items-center justify-center">
+                             <h2 className="text-3xl font-bold text-white animate-pulse text-center p-4">Seleziona un bersaglio dalla classifica!</h2>
+                             <button onClick={() => setTargetAction(null)} className="absolute top-10 right-10 bg-slate-800 px-4 py-2 rounded">Annulla</button>
+                          </div>
+                      )}
+
+                      <div 
+                          className={`bg-slate-700/50 rounded-xl shadow-2xl grid transition-all duration-700 ${isGameEnded && !showResultsModal ? 'scale-100 shadow-[0_0_30px_rgba(255,255,255,0.1)]' : ''}`}
+                          style={{
+                              maxHeight: '100%',
+                              maxWidth: '100%',
+                              width: 'min(100%, 100vh)',
+                              height: 'auto',
+                              aspectRatio: '1 / 1',
+                              gridTemplateColumns: `repeat(${boardSize}, minmax(0, 1fr))`,
+                              gridTemplateRows: `repeat(${boardSize}, minmax(0, 1fr))`,
+                              gap: boardSize > 12 ? '1px' : '2px',
+                              padding: boardSize > 12 ? '1px' : '2px'
+                          }}
                       >
-                          👁️ Osserva Mappa Finale
-                      </button>
-                      
-                      {isHost && (
-                          <button 
-                              onClick={() => isTournament ? handleTournamentMatchEnd(room, topPlayerIds) : updateDoc(boardRef, {status: 'lobby'})} 
-                              className="w-full sm:w-auto px-8 py-3 rounded-xl font-black bg-orange-600 hover:bg-orange-500 transition-colors shadow-lg"
-                          >
-                              {isTournament ? 'Ritorna al Tabellone Torneo' : 'Torna alla Lobby'}
-                          </button>
-                      )}
-                      {!isHost && isTournament && <span className="text-slate-400 animate-pulse text-sm">In attesa dell'Host...</span>}
-                  </div>
-              </div>
-          </div>
-      )}
+                          {Array.from({length: boardSize * boardSize}).map((_, i) => {
+                              const x = i % boardSize;
+                              const y = Math.floor(i / boardSize);
+                              const key = `${x},${y}`;
+                              const cell = room.board[key];
 
-      {/* PULSANTE PER TORNARE AI RISULTATI DALLA MAPPA */}
-      {isGameEnded && !showResultsModal && (
-          <button 
-              onClick={() => setShowResultsModal(true)} 
-              className="absolute bottom-6 left-1/2 transform -translate-x-1/2 z-40 bg-slate-800/90 backdrop-blur px-8 py-4 rounded-full font-black text-lg shadow-[0_0_20px_rgba(0,0,0,0.8)] border-2 border-indigo-500 text-white hover:bg-slate-700 transition-all hover:scale-105"
-          >
-              🔙 TORNA AI RISULTATI
-          </button>
-      )}
+                              if (!cell) return <div key={key} className="bg-transparent" />;
 
-      {/* Top Bar - Turn Order */}
-      <div className="bg-slate-800 p-3 shadow-md flex justify-between items-center z-10 border-b border-slate-700">
-          <div className="flex items-center gap-4">
-              <div className="text-xl font-bold bg-slate-700 px-4 py-2 rounded-lg">
-                  {isGameEnded ? 'FINE PARTITA' : `Round ${room.round}/${room.config.maxRounds}`}
-              </div>
-              {room.config.mode === 'tournament' && (
-                  <div className="text-orange-400 font-bold bg-slate-900 px-3 py-1 rounded border border-orange-500/50">TORNEO</div>
-              )}
-          </div>
-          
-          <div className="flex gap-2 overflow-x-auto mx-4 scrollbar-hide">
-              {matchPlayerOrder.map((pid, idx) => {
-                  const p = room.players[pid];
-                  const c = CHARACTERS.find(x => x.id === p.charId);
-                  const isActive = idx === room.turnIndex && !isGameEnded;
-                  return (
-                      <div key={pid} className={`relative transition-all duration-300 ${isActive ? 'transform scale-110 z-10' : 'opacity-60 scale-90'}`}>
-                          <img src={c?.i} className={`w-14 h-14 rounded-full border-4 object-cover ${isActive ? 'animate-pulse shadow-[0_0_15px_currentColor]' : ''}`} style={{borderColor: p.color, color: p.color}} />
-                          {p.modifier !== 0 && <span className="absolute -top-2 -right-2 bg-slate-900 rounded-full w-6 h-6 flex items-center justify-center text-xs font-bold border border-slate-600">{p.modifier>0?'+'+p.modifier:p.modifier}</span>}
-                      </div>
-                  )
-              })}
-          </div>
-          <div className="text-right flex flex-col items-end">
-             <span className="text-sm text-slate-400">{isGameEnded ? 'Vincitore:' : 'Tocca a:'}</span>
-             <span className="text-xl font-black" style={{color: isGameEnded ? leaderboard[0].color : activePlayer?.color}}>
-                 {isGameEnded ? leaderboard[0].n : `${activePlayer?.n} ${activePlayer?.isBot ? '(BOT)' : ''}`}
-             </span>
-          </div>
-      </div>
+                              const isPlayable = playableTiles.includes(key);
+                              const ownerPlayer = cell.owner ? room.players[cell.owner] : null;
+                              const ownerColor = ownerPlayer ? ownerPlayer.color : '#1e293b'; 
+                              const ownerCharId = ownerPlayer ? ownerPlayer.charId : null;
+                              const ownerCharImg = ownerCharId ? CHARACTERS.find(c => c.id === ownerCharId)?.i : null;
 
-      <div className="flex flex-1 overflow-hidden">
-          {/* MAP AREA */}
-          <div className="flex-1 w-full h-full relative bg-slate-950 flex flex-col items-center justify-center p-2 md:p-6 overflow-hidden min-h-0 min-w-0">
-              
-              {/* Targetting overlay */}
-              {targetAction !== null && !isGameEnded && (
-                  <div className="absolute inset-0 z-20 bg-black/50 flex items-center justify-center">
-                     <h2 className="text-3xl font-bold text-white animate-pulse text-center p-4">Seleziona un bersaglio dalla classifica!</h2>
-                     <button onClick={() => setTargetAction(null)} className="absolute top-10 right-10 bg-slate-800 px-4 py-2 rounded">Annulla</button>
-                  </div>
-              )}
+                              let cellStyle = { backgroundColor: ownerColor };
+                              if (cell.owner && ownerCharImg) {
+                                  const overlayColor = ownerColor.length === 7 ? ownerColor + '99' : ownerColor;
+                                  cellStyle = {
+                                      backgroundImage: `linear-gradient(${overlayColor}, ${overlayColor}), url(${ownerCharImg})`,
+                                      backgroundSize: 'cover',
+                                      backgroundPosition: 'center',
+                                      boxShadow: `inset 0 0 0 1px rgba(0,0,0,0.3)`
+                                  };
+                              }
 
-              {/* Contenitore Griglia - Mantiene proporzioni rigorose e minmax per evitare distorsioni CSS */}
-              <div 
-                  className={`bg-slate-700/50 rounded-xl shadow-2xl grid transition-all duration-700 ${isGameEnded && !showResultsModal ? 'scale-100 shadow-[0_0_30px_rgba(255,255,255,0.1)]' : ''}`}
-                  style={{
-                      maxHeight: '100%',
-                      maxWidth: '100%',
-                      width: 'min(100%, 100vh)',
-                      height: 'auto',
-                      aspectRatio: '1 / 1',
-                      gridTemplateColumns: `repeat(${boardSize}, minmax(0, 1fr))`,
-                      gridTemplateRows: `repeat(${boardSize}, minmax(0, 1fr))`,
-                      gap: boardSize > 12 ? '1px' : '2px',
-                      padding: boardSize > 12 ? '1px' : '2px'
-                  }}
-              >
-                  {Array.from({length: boardSize * boardSize}).map((_, i) => {
-                      const x = i % boardSize;
-                      const y = Math.floor(i / boardSize);
-                      const key = `${x},${y}`;
-                      const cell = room.board[key];
-
-                      if (!cell) return <div key={key} className="bg-transparent" />;
-
-                      const isPlayable = playableTiles.includes(key);
-                      const ownerPlayer = cell.owner ? room.players[cell.owner] : null;
-                      const ownerColor = ownerPlayer ? ownerPlayer.color : '#1e293b'; 
-                      const ownerCharId = ownerPlayer ? ownerPlayer.charId : null;
-                      const ownerCharImg = ownerCharId ? CHARACTERS.find(c => c.id === ownerCharId)?.i : null;
-
-                      let cellStyle = { backgroundColor: ownerColor };
-                      if (cell.owner && ownerCharImg) {
-                          const overlayColor = ownerColor.length === 7 ? ownerColor + '99' : ownerColor;
-                          cellStyle = {
-                              backgroundImage: `linear-gradient(${overlayColor}, ${overlayColor}), url(${ownerCharImg})`,
-                              backgroundSize: 'cover',
-                              backgroundPosition: 'center',
-                              boxShadow: `inset 0 0 0 1px rgba(0,0,0,0.3)`
-                          };
-                      }
-
-                      return (
-                          <div 
-                              key={key} 
-                              onClick={() => clickTile(key)}
-                              className={`relative transition-all duration-200 flex items-center justify-center overflow-hidden rounded-sm w-full h-full aspect-square
-                                  ${isPlayable ? 'cursor-pointer animate-pulse z-10 scale-[1.03] ring-2 ring-white/70 shadow-xl' : ''}
-                                  ${!cell.owner && !isPlayable ? 'opacity-80 hover:opacity-100' : ''}
-                              `}
-                              style={cellStyle}
-                          >
-                              {cell.item && (
-                                  <span className={`${iconSizeClass} drop-shadow-[0_2px_2px_rgba(0,0,0,0.8)] z-0 pointer-events-none`}>
-                                      {ITEMS.find(i => i.id === cell.item)?.icon}
-                                  </span>
-                              )}
-                              {isPlayable && <div className="absolute inset-0 bg-white/20 rounded-sm hover:bg-white/40"></div>}
-                          </div>
-                      );
-                  })}
-              </div>
-          </div>
-
-          {/* RIGHT SIDEBAR - Leaderboard & Actions */}
-          <div className="w-80 bg-slate-800 border-l border-slate-700 flex flex-col shadow-[-10px_0_20px_rgba(0,0,0,0.3)] z-10">
-              <div className="p-4 border-b border-slate-700 bg-slate-800/80 backdrop-blur">
-                  <h3 className="font-black text-xl mb-1 flex items-center gap-2">🏆 Classifica</h3>
-                  <div className="text-xs text-slate-400">Riempi il tabellone per vincere!</div>
-              </div>
-              
-              <div className="flex-1 overflow-y-auto p-2 space-y-2">
-                  {leaderboard.map((p, idx) => {
-                      const c = CHARACTERS.find(x => x.id === p.charId);
-                      const isTargetable = targetAction !== null && p.id !== user.uid;
-                      const isEliminated = isGameEnded && idx >= winnersCount;
-                      
-                      return (
-                          <div 
-                              key={p.id} 
-                              onClick={() => isTargetable && applyTargetItem(p.id)}
-                              className={`flex items-center p-2 rounded-xl border-l-4 bg-slate-700/50 transition-all
-                                  ${p.id === activePlayerId && !isGameEnded ? 'ring-1 ring-white/30' : ''}
-                                  ${isTargetable ? 'cursor-pointer hover:bg-slate-600 ring-2 ring-red-500 animate-pulse' : ''}
-                                  ${isEliminated ? 'opacity-40 grayscale' : ''}
-                              `}
-                              style={{borderColor: p.color}}
-                          >
-                              <div className="font-bold text-slate-500 w-4">{idx+1}</div>
-                              <img src={c?.i} className="w-10 h-10 rounded object-cover mx-2 border border-slate-600" />
-                              <div className="flex-1 min-w-0">
-                                  <div className="font-bold text-sm truncate" style={{color: p.color}}>{p.n}</div>
-                                  <div className="text-xs text-slate-300">{p.tiles} caselle</div>
-                              </div>
-                              <div className="flex gap-1 ml-1">
-                                  {p.inventory?.map((itemId, i) => {
-                                      const it = ITEMS.find(x => x.id === itemId);
-                                      if(!it) return null;
-                                      return (
-                                          <span key={i} className="text-sm bg-slate-800 rounded p-0.5" title={it.n}>
-                                              {it.icon}
+                              return (
+                                  <div 
+                                      key={key} 
+                                      onClick={() => clickTile(key)}
+                                      className={`relative transition-all duration-200 flex items-center justify-center overflow-hidden rounded-sm w-full h-full aspect-square
+                                          ${isPlayable ? 'cursor-pointer animate-pulse z-10 scale-[1.03] ring-2 ring-white/70 shadow-xl' : ''}
+                                          ${!cell.owner && !isPlayable ? 'opacity-80 hover:opacity-100' : ''}
+                                      `}
+                                      style={cellStyle}
+                                  >
+                                      {cell.item && (
+                                          <span className={`${iconSizeClass} drop-shadow-[0_2px_2px_rgba(0,0,0,0.8)] z-0 pointer-events-none`}>
+                                              {ITEMS.find(i => i.id === cell.item)?.icon}
                                           </span>
-                                      )
-                                  })}
-                              </div>
-                          </div>
-                      );
-                  })}
-              </div>
+                                      )}
+                                      {isPlayable && <div className="absolute inset-0 bg-white/20 rounded-sm hover:bg-white/40"></div>}
+                                  </div>
+                              );
+                          })}
+                      </div>
+                  </div>
 
-              {/* ACTION PANEL (Bottom Right) */}
-              {!isGameEnded && (
-                  <div className="p-4 bg-slate-900 border-t border-slate-700">
-                      <h4 className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-2">Pannello Controllo</h4>
+                  <div className="w-80 bg-slate-800 border-l border-slate-700 flex flex-col shadow-[-10px_0_20px_rgba(0,0,0,0.3)] z-10">
+                      <div className="p-4 border-b border-slate-700 bg-slate-800/80 backdrop-blur">
+                          <h3 className="font-black text-xl mb-1 flex items-center gap-2">🏆 Classifica</h3>
+                          <div className="text-xs text-slate-400">Riempi il tabellone per vincere!</div>
+                      </div>
                       
-                      {!isPlayingThisMatch ? (
-                          <div className="text-center py-4 text-slate-400 italic bg-slate-800 rounded-xl">
-                              Sei uno spettatore in questo turno.<br/>Goditi lo scontro!🍿
-                          </div>
-                      ) : !isMyTurn ? (
-                          <div className="text-center py-4 text-slate-500 font-bold bg-slate-800 rounded-xl">In attesa di {activePlayer?.n}...</div>
-                      ) : (
-                          <div className="space-y-3">
-                              {room.actionState === 'rolling' && (
-                                  <button onClick={rollDice} className="w-full bg-indigo-600 hover:bg-indigo-500 text-white font-black py-4 rounded-xl shadow-[0_4px_14px_0_rgba(79,70,229,0.39)] transform hover:-translate-y-1 transition-all text-xl">
-                                      🎲 LANCIA DADO
-                                  </button>
-                              )}
+                      <div className="flex-1 overflow-y-auto p-2 space-y-2">
+                          {leaderboard.map((p, idx) => {
+                              const c = CHARACTERS.find(x => x.id === p.charId);
+                              const isTargetable = targetAction !== null && p.id !== user.uid;
+                              const isEliminated = isGameEnded && idx >= winnersCount;
+                              
+                              return (
+                                  <div 
+                                      key={p.id} 
+                                      onClick={() => isTargetable && applyTargetItem(p.id)}
+                                      className={`flex items-center p-2 rounded-xl border-l-4 bg-slate-700/50 transition-all
+                                          ${p.id === activePlayerId && !isGameEnded ? 'ring-1 ring-white/30' : ''}
+                                          ${isTargetable ? 'cursor-pointer hover:bg-slate-600 ring-2 ring-red-500 animate-pulse' : ''}
+                                          ${isEliminated ? 'opacity-40 grayscale' : ''}
+                                      `}
+                                      style={{borderColor: p.color}}
+                                  >
+                                      <div className="font-bold text-slate-500 w-4">{idx+1}</div>
+                                      <img src={c?.i} className="w-10 h-10 rounded object-cover mx-2 border border-slate-600" />
+                                      <div className="flex-1 min-w-0">
+                                          <div className="font-bold text-sm truncate" style={{color: p.color}}>{p.n}</div>
+                                          <div className="text-xs text-slate-300">{p.tiles} caselle</div>
+                                      </div>
+                                      <div className="flex gap-1 ml-1">
+                                          {p.inventory?.map((itemId, i) => {
+                                              const it = ITEMS.find(x => x.id === itemId);
+                                              if(!it) return null;
+                                              return (
+                                                  <span key={i} className="text-sm bg-slate-800 rounded p-0.5" title={it.n}>
+                                                      {it.icon}
+                                                  </span>
+                                              )
+                                          })}
+                                      </div>
+                                  </div>
+                              );
+                          })}
+                      </div>
 
-                              {room.actionState === 'moving' && (
-                                  <div className="bg-slate-800 p-3 rounded-xl text-center border border-indigo-500/50">
-                                      <div className="text-sm text-slate-400 mb-1">Mosse Rimanenti</div>
-                                      <div className="text-4xl font-black text-indigo-400">{room.movesLeft}</div>
-                                      <div className="text-xs text-slate-500 mt-1">Clicca sulle caselle adiacenti!</div>
+                      {!isGameEnded && (
+                          <div className="p-4 bg-slate-900 border-t border-slate-700">
+                              <h4 className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-2">Pannello Controllo</h4>
+                              
+                              {!isPlayingThisMatch ? (
+                                  <div className="text-center py-4 text-slate-400 italic bg-slate-800 rounded-xl">
+                                      Sei uno spettatore in questo turno.<br/>Goditi lo scontro!🍿
+                                  </div>
+                              ) : !isMyTurn ? (
+                                  <div className="text-center py-4 text-slate-500 font-bold bg-slate-800 rounded-xl">In attesa di {activePlayer?.n}...</div>
+                              ) : (
+                                  <div className="space-y-3">
+                                      {room.actionState === 'rolling' && (
+                                          <button onClick={rollDice} className="w-full bg-indigo-600 hover:bg-indigo-500 text-white font-black py-4 rounded-xl shadow-[0_4px_14px_0_rgba(79,70,229,0.39)] transform hover:-translate-y-1 transition-all text-xl">
+                                              🎲 LANCIA DADO
+                                          </button>
+                                      )}
+
+                                      {room.actionState === 'moving' && (
+                                          <div className="bg-slate-800 p-3 rounded-xl text-center border border-indigo-500/50">
+                                              <div className="text-sm text-slate-400 mb-1">Mosse Rimanenti</div>
+                                              <div className="text-4xl font-black text-indigo-400">{room.movesLeft}</div>
+                                              <div className="text-xs text-slate-500 mt-1">Clicca sulle caselle adiacenti!</div>
+                                          </div>
+                                      )}
+
+                                      {room.actionState === 'items_or_end' && (
+                                          <button onClick={endTurnBtn} className="w-full bg-emerald-600 hover:bg-emerald-500 text-white font-bold py-3 rounded-xl shadow-lg transition-all">
+                                              Termina Turno
+                                          </button>
+                                      )}
+
+                                      <div className="mt-4">
+                                          <div className="text-xs text-slate-400 mb-2 flex justify-between">
+                                              <span>Inventario (Max 2)</span>
+                                          </div>
+                                          <div className="flex gap-2">
+                                              {[0, 1].map(slot => {
+                                                  const itemId = me?.inventory?.[slot];
+                                                  const item = itemId ? ITEMS.find(i => i.id === itemId) : null;
+                                                  return (
+                                                      <button 
+                                                          key={slot}
+                                                          disabled={!item || (room.actionState === 'rolling' && item?.id === 'jackpot')} 
+                                                          onClick={() => useItem(slot, itemId)}
+                                                          className={`flex-1 h-14 rounded-lg flex items-center justify-center text-2xl border transition-all relative group
+                                                              ${item ? 'bg-slate-700 border-slate-500 hover:border-white cursor-pointer hover:bg-slate-600' : 'bg-slate-800/50 border-slate-700 border-dashed cursor-not-allowed'}
+                                                          `}
+                                                      >
+                                                          {item ? item.icon : ''}
+                                                          {item && (
+                                                              <div className="absolute bottom-full mb-2 hidden group-hover:block w-40 bg-black text-white text-xs p-2 rounded shadow-xl z-50 text-center pointer-events-none">
+                                                                  <strong className="block mb-1">{item.n}</strong>
+                                                                  {item.desc}
+                                                              </div>
+                                                          )}
+                                                      </button>
+                                                  );
+                                              })}
+                                          </div>
+                                      </div>
                                   </div>
                               )}
-
-                              {room.actionState === 'items_or_end' && (
-                                  <button onClick={endTurnBtn} className="w-full bg-emerald-600 hover:bg-emerald-500 text-white font-bold py-3 rounded-xl shadow-lg transition-all">
-                                      Termina Turno
-                                  </button>
-                              )}
-
-                              {/* Inventario Personale */}
-                              <div className="mt-4">
-                                  <div className="text-xs text-slate-400 mb-2 flex justify-between">
-                                      <span>Inventario (Max 2)</span>
-                                  </div>
-                                  <div className="flex gap-2">
-                                      {[0, 1].map(slot => {
-                                          const itemId = me?.inventory?.[slot];
-                                          const item = itemId ? ITEMS.find(i => i.id === itemId) : null;
-                                          return (
-                                              <button 
-                                                  key={slot}
-                                                  disabled={!item || (room.actionState === 'rolling' && item?.id === 'jackpot')} 
-                                                  onClick={() => useItem(slot, itemId)}
-                                                  className={`flex-1 h-14 rounded-lg flex items-center justify-center text-2xl border transition-all relative group
-                                                      ${item ? 'bg-slate-700 border-slate-500 hover:border-white cursor-pointer hover:bg-slate-600' : 'bg-slate-800/50 border-slate-700 border-dashed cursor-not-allowed'}
-                                                  `}
-                                              >
-                                                  {item ? item.icon : ''}
-                                                  {item && (
-                                                      <div className="absolute bottom-full mb-2 hidden group-hover:block w-40 bg-black text-white text-xs p-2 rounded shadow-xl z-50 text-center pointer-events-none">
-                                                          <strong className="block mb-1">{item.n}</strong>
-                                                          {item.desc}
-                                                      </div>
-                                                  )}
-                                              </button>
-                                          );
-                                      })}
-                                  </div>
-                              </div>
                           </div>
                       )}
                   </div>
-              )}
-          </div>
-      </div>
-    </div>
-  );
-}
+              </div>
+            </div>
+          );
+        }
+
+        // --- RENDER INIZIALE ---
+        const root = ReactDOM.createRoot(document.getElementById('root'));
+        root.render(<App />);
+    </script>
+</body>
+</html>
