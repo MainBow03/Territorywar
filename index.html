@@ -23,9 +23,20 @@
         .custom-scrollbar::-webkit-scrollbar-thumb { background: #475569; border-radius: 10px; }
         .custom-scrollbar::-webkit-scrollbar-thumb:hover { background: #64748b; }
         .no-select { -webkit-user-select: none; user-select: none; -webkit-touch-callout: none; }
+        
         /* Animazioni Eventi Meteo */
         @keyframes pulse-red { 0%, 100% { box-shadow: 0 0 0 0 rgba(239, 68, 68, 0.7); } 50% { box-shadow: 0 0 20px 10px rgba(239, 68, 68, 0); } }
         .event-active { animation: pulse-red 2s infinite; }
+
+        /* Animazione Domino Eliminazione */
+        @keyframes domino-explode {
+            0% { transform: scale(1) translateY(0) rotate(0deg); opacity: 1; filter: brightness(1); }
+            30% { transform: scale(1.2) translateY(-10px) rotate(10deg); opacity: 0.9; filter: brightness(1.5); z-index: 50; }
+            100% { transform: scale(0) translateY(20px) rotate(-15deg); opacity: 0; filter: brightness(0); }
+        }
+        .explode-anim {
+            animation: domino-explode 0.8s ease-in forwards;
+        }
     </style>
 </head>
 <body class="bg-slate-900 text-slate-100 no-select overflow-hidden">
@@ -230,9 +241,14 @@
 
         const getSpawnPoints = (size, numPlayers, board) => {
           const max = size - 1;
+          const mid = Math.floor(max/2);
+          const q1 = Math.floor(max/4);
+          const q3 = Math.floor(max*3/4);
           const idealSpawns = [
             [0, 0], [max, max], [max, 0], [0, max],
-            [Math.floor(max/2), 0], [Math.floor(max/2), max], [0, Math.floor(max/2)], [max, Math.floor(max/2)]
+            [mid, 0], [mid, max], [0, mid], [max, mid],
+            [q1, 0], [q3, 0], [0, q1], [0, q3],
+            [max, q1], [max, q3], [q1, max], [q3, max]
           ];
           
           const actualSpawns = [];
@@ -402,8 +418,8 @@
         function App() {
           const [user, setUser] = useState(null);
           const [playerName, setPlayerName] = useState(() => localStorage.getItem('tw_player_name') || '');
+          const [roomId, setRoomId] = useState(() => localStorage.getItem('tw_room_id') || '');
           const [room, setRoom] = useState(null);
-          const [roomId, setRoomId] = useState('');
           const [joining, setJoining] = useState(false);
           const [error, setError] = useState('');
           const [notification, setNotification] = useState(null);
@@ -416,7 +432,7 @@
               if(room?.globalAction && room.globalAction.id !== window.lastGlobalActionId) {
                   window.lastGlobalActionId = room.globalAction.id;
                   showGlobalNotif(room.globalAction.msg);
-                  if (room.globalAction.msg.includes('🚨 METEO:')) playEventSound();
+                  if (room.globalAction.msg.includes('🚨 METEO:') || room.globalAction.msg.includes('☠️ ELIMINAZIONE')) playEventSound();
                   else playActionSound();
               }
           }, [room?.globalAction]);
@@ -438,7 +454,12 @@
             const roomRef = doc(getCollectionRef(), roomId);
             const unsub = onSnapshot(roomRef, (docSnap) => {
               if (docSnap.exists()) setRoom({ id: docSnap.id, ...docSnap.data() });
-              else { setError("Stanza non trovata!"); setRoom(null); }
+              else { 
+                  setError("Stanza non trovata o scaduta!"); 
+                  setRoom(null); 
+                  setRoomId('');
+                  localStorage.removeItem('tw_room_id');
+              }
             }, (err) => { setError("Errore connessione."); });
             return () => unsub();
           }, [user, roomId]);
@@ -452,10 +473,11 @@
             const roomData = {
               status: 'lobby', hostId: user.uid,
               config: { mode: 'standard', players: 4, tournamentSize: 8, size: 10, shape: 'square', maxRounds: 20, invasionMode: false, botSpeed: 1, eventsEnabled: false },
-              players: { [user.uid]: { id: user.uid, n: playerName.trim(), isBot: false, color: hostColor, charId: null, ready: false, hasStregoneria: false } },
+              players: { [user.uid]: { id: user.uid, n: playerName.trim(), isBot: false, color: hostColor, charId: null, ready: false, hasStregoneria: false, isEliminated: false } },
               playerOrder: [user.uid], round: 1, turnIndex: 0, currentEvent: null, messages: []
             };
             await setDoc(doc(getCollectionRef(), newRoomId), roomData);
+            localStorage.setItem('tw_room_id', newRoomId);
             setRoomId(newRoomId);
           };
 
@@ -471,22 +493,30 @@
               if (snap.exists()) {
                 const data = snap.data();
                 if (data.status !== 'lobby') setError("Partita già iniziata!");
-                else if (data.config.mode === 'standard' && data.playerOrder.length >= data.config.players) setError("Stanza piena!");
+                else if ((data.config.mode === 'standard' || data.config.mode === 'elimination') && data.playerOrder.length >= data.config.players) setError("Stanza piena!");
                 else if (data.config.mode === 'tournament' && data.playerOrder.length >= data.config.tournamentSize) setError("Torneo pieno!");
                 else if (!data.players[user.uid]) {
                   const newColor = '#' + Math.floor(Math.random()*16777215).toString(16).padStart(6, '0');
                   await updateDoc(roomRef, {
-                    [`players.${user.uid}`]: { id: user.uid, n: playerName.trim(), isBot: false, color: newColor, charId: null, ready: false, hasStregoneria: false },
+                    [`players.${user.uid}`]: { id: user.uid, n: playerName.trim(), isBot: false, color: newColor, charId: null, ready: false, hasStregoneria: false, isEliminated: false },
                     playerOrder: [...data.playerOrder, user.uid]
                   });
+                  localStorage.setItem('tw_room_id', code);
                   setRoomId(code); setError("");
-                } else setRoomId(code);
+                } else {
+                    localStorage.setItem('tw_room_id', code);
+                    setRoomId(code);
+                }
               } else setError("Stanza inesistente!");
             } catch (e) { setError("Errore durante l'accesso."); }
             setJoining(false);
           };
 
-          const leaveRoom = () => { setRoomId(''); setRoom(null); };
+          const leaveRoom = () => { 
+              localStorage.removeItem('tw_room_id');
+              setRoomId(''); 
+              setRoom(null); 
+          };
 
           if (!user) return <div className="min-h-[100dvh] bg-gray-900 flex items-center justify-center text-white">Caricamento...</div>;
 
@@ -552,7 +582,7 @@
             const char = available[Math.floor(Math.random() * available.length)];
 
             await updateDoc(doc(getCollectionRef(), room.id), {
-              [`players.${botId}`]: { id: botId, n: `[BOT] ${char.n}`, isBot: true, color, charId: char.id, ready: true, hasStregoneria: false },
+              [`players.${botId}`]: { id: botId, n: `[BOT] ${char.n}`, isBot: true, color, charId: char.id, ready: true, hasStregoneria: false, isEliminated: false },
               playerOrder: [...room.playerOrder, botId]
             });
           };
@@ -563,7 +593,7 @@
               const pickedChars = Object.values(existingPlayersObj).map(p => p.charId).filter(Boolean);
               const available = CHARACTERS.filter(c => !pickedChars.includes(c.id));
               const char = available[Math.floor(Math.random() * available.length)];
-              return { id: botId, data: { id: botId, n: `[BOT] ${char.n}`, isBot: true, color, charId: char.id, ready: true, hasStregoneria: false } };
+              return { id: botId, data: { id: botId, n: `[BOT] ${char.n}`, isBot: true, color, charId: char.id, ready: true, hasStregoneria: false, isEliminated: false } };
           };
 
           const startGame = async () => {
@@ -602,11 +632,13 @@
                 
                 const updates = { 
                     status: 'playing', turnIndex: 0, round: 1, actionState: 'rolling', movesLeft: 0, currentRoll: 0, currentEvent: null,
+                    eliminationRank: [],
                     lastAction: { msg: `🎮 La partita inizia! Tocca a ${room.players[room.playerOrder[0]]?.n}!`, id: Date.now() }
                 };
                 room.playerOrder.forEach((pid, idx) => {
                   updates[`players.${pid}.tiles`] = 1; updates[`players.${pid}.inventory`] = [];
                   updates[`players.${pid}.modifier`] = 0; updates[`players.${pid}.isTrapped`] = false; updates[`players.${pid}.hasStregoneria`] = false;
+                  updates[`players.${pid}.isEliminated`] = false;
                   if (spawns[idx]) { board[`${spawns[idx]}`] = { owner: pid, item: null, isSpawn: true, isWall: false }; }
                 });
                 updates.board = board; 
@@ -629,16 +661,18 @@
                     <div className="space-y-4">
                       <div>
                         <label className="block text-sm text-slate-400 mb-1">Modalità Gioco</label>
-                        <div className="flex gap-2">
+                        <div className="flex gap-2 text-xs sm:text-sm">
                             <button onClick={() => updateConfig('mode', 'standard')} className={`flex-1 py-2 rounded ${room.config.mode==='standard' ? 'bg-indigo-500 text-white font-bold' : 'bg-slate-700 text-slate-300'}`}>Standard</button>
+                            <button onClick={() => updateConfig('mode', 'elimination')} className={`flex-1 py-2 rounded ${room.config.mode==='elimination' ? 'bg-red-600 text-white font-bold shadow-[0_0_10px_red]' : 'bg-slate-700 text-slate-300'}`}>Eliminazione</button>
                             <button onClick={() => updateConfig('mode', 'tournament')} className={`flex-1 py-2 rounded ${room.config.mode==='tournament' ? 'bg-orange-500 text-white font-bold' : 'bg-slate-700 text-slate-300'}`}>Torneo</button>
                         </div>
+                        {room.config.mode === 'elimination' && <div className="text-xs text-red-400 mt-1 animate-pulse">Ogni 3 round l'ultimo muore!</div>}
                       </div>
 
-                      {room.config.mode === 'standard' ? (
+                      {room.config.mode === 'standard' || room.config.mode === 'elimination' ? (
                           <div>
-                            <label className="block text-sm text-slate-400 mb-1">Giocatori Max (4-8)</label>
-                            <input type="range" min="4" max="8" value={room.config.players} onChange={(e) => updateConfig('players', parseInt(e.target.value))} className="w-full accent-indigo-500" />
+                            <label className="block text-sm text-slate-400 mb-1">Giocatori Max (4-16)</label>
+                            <input type="range" min="4" max="16" value={room.config.players} onChange={(e) => updateConfig('players', parseInt(e.target.value))} className="w-full accent-indigo-500" />
                             <div className="text-center font-bold">{room.config.players}</div>
                           </div>
                       ) : (
@@ -674,14 +708,14 @@
                       </div>
                       <div>
                         <label className="block text-sm text-slate-400 mb-1">Grandezza Arena ({room.config.size}x{room.config.size})</label>
-                        <input type="range" min="5" max="18" value={room.config.size} onChange={(e) => updateConfig('size', parseInt(e.target.value))} className="w-full accent-indigo-500" />
+                        <input type="range" min="5" max="24" value={room.config.size} onChange={(e) => updateConfig('size', parseInt(e.target.value))} className="w-full accent-indigo-500" />
                       </div>
                       <div>
                         <label className="block text-sm text-slate-400 mb-1">Rounds ({room.config.maxRounds})</label>
                         <input type="range" min="5" max="50" value={room.config.maxRounds} onChange={(e) => updateConfig('maxRounds', parseInt(e.target.value))} className="w-full accent-indigo-500" />
                       </div>
                       
-                      {room.config.mode === 'standard' && (
+                      {(room.config.mode === 'standard' || room.config.mode === 'elimination') && (
                           <button onClick={addBot} disabled={room.playerOrder.length >= room.config.players} className="w-full bg-slate-700 hover:bg-slate-600 py-2 rounded text-sm disabled:opacity-50">+ Aggiungi Bot NPC</button>
                       )}
                     </div>
@@ -835,7 +869,7 @@
                 if (!isHost) return;
                 initAudio();
                 const matchPlayers = match.players;
-                const dynamicSize = matchPlayers.length === 2 ? 8 : (matchPlayers.length >= 8 ? 14 : 10);
+                const dynamicSize = matchPlayers.length === 2 ? 8 : (matchPlayers.length >= 16 ? 18 : (matchPlayers.length >= 8 ? 14 : 10));
                 const board = generateBoard(dynamicSize, room.config.shape);
                 const spawns = getSpawnPoints(dynamicSize, matchPlayers.length, board);
                 
@@ -858,7 +892,7 @@
             const simulateMatch = async () => {
                 if (!isHost) return;
                 const matchPlayers = match.players;
-                const dynamicSize = matchPlayers.length === 2 ? 8 : (matchPlayers.length >= 8 ? 14 : 10);
+                const dynamicSize = matchPlayers.length === 2 ? 8 : (matchPlayers.length >= 16 ? 18 : (matchPlayers.length >= 8 ? 14 : 10));
                 let fakeBoard = generateBoard(dynamicSize, room.config.shape);
 
                 const keys = Object.keys(fakeBoard);
@@ -961,7 +995,7 @@
           
           const isPlayingThisMatch = matchPlayerOrder.includes(user.uid);
           const me = isPlayingThisMatch ? room.players[user.uid] : null;
-          const isMyTurn = isPlayingThisMatch && activePlayerId === user.uid;
+          const isMyTurn = isPlayingThisMatch && activePlayerId === user.uid && !me?.isEliminated;
           
           const boardRef = doc(getCollectionRef(), room.id);
 
@@ -987,7 +1021,7 @@
 
           // --- BOT LOGIC ---
           useEffect(() => {
-            if (!isHost || !activePlayer?.isBot || !room.status.startsWith('playing')) return;
+            if (!isHost || !activePlayer?.isBot || !room.status.startsWith('playing') || activePlayer?.isEliminated) return;
 
             let timeout;
             const botPlay = async () => {
@@ -1051,7 +1085,7 @@
                     }
 
                     if (item === 'curse' || item === 'terremoto' || item === 'stregoneria') {
-                        const enemies = matchPlayerOrder.filter(id => id !== activePlayerId && room.players[id] && !room.players[id].isTrapped);
+                        const enemies = matchPlayerOrder.filter(id => id !== activePlayerId && room.players[id] && !room.players[id].isTrapped && !room.players[id].isEliminated);
                         if (enemies.length > 0) {
                             const target = enemies[Math.floor(Math.random() * enemies.length)];
                             if(item === 'curse') {
@@ -1153,72 +1187,121 @@
           };
 
           const nextTurn = async (extraTurn = false) => {
-             let nextIdx = extraTurn ? room.turnIndex : (room.turnIndex + 1) % matchPlayerOrder.length;
+             let nextIdx = extraTurn ? room.turnIndex : room.turnIndex;
              let nextRound = room.round;
              const updates = {};
+             updates.currentEvent = null;
+             let currentBoard = { ...(room.board || {}) };
+             let eliminatedThisTurn = null;
              
-             if (!extraTurn && nextIdx === 0) {
-                 nextRound++;
-                 let currentBoard = { ...(room.board || {}) };
-                 updates.currentEvent = null;
-                 
-                 if (isHost && room.config.eventsEnabled && nextRound > 1 && Math.random() < 0.30) {
-                     const ev = EVENT_TYPES[Math.floor(Math.random() * EVENT_TYPES.length)];
-                     updates.globalAction = { msg: `🚨 METEO: ${ev.n}! ${ev.desc}`, id: Date.now() };
-                     
-                     if (ev.id === 'tempesta' || ev.id === 'carestia' || ev.id === 'glaciale') {
-                         updates.currentEvent = ev.id;
-                     } 
-                     else if (ev.id === 'robin_hood') {
-                         const sortedPlayers = [...matchPlayerOrder].sort((a, b) => (room.players[b].tiles || 0) - (room.players[a].tiles || 0));
-                         const first = sortedPlayers[0]; const last = sortedPlayers[sortedPlayers.length - 1];
+             if (!extraTurn) {
+                 let loopCount = 0;
+                 do {
+                     nextIdx = (nextIdx + 1) % matchPlayerOrder.length;
+                     if (nextIdx === 0) {
+                         nextRound++;
                          
-                         let firstTiles = Object.keys(currentBoard).filter(k => currentBoard[k]?.owner === first && !currentBoard[k]?.isSpawn);
-                         const toLose = firstTiles.sort(() => 0.5 - Math.random()).slice(0, 3);
-                         toLose.forEach(k => { currentBoard[k] = { ...currentBoard[k], owner: null, item: null }; updates[`board.${k}`] = currentBoard[k]; });
-                         updates[`players.${first}.tiles`] = Math.max(1, (room.players[first].tiles || 1) - toLose.length);
+                         // LOGICA MODALITÀ ELIMINAZIONE (Ogni 3 round l'ultimo muore)
+                         if (room.config.mode === 'elimination' && (nextRound - 1) % 3 === 0) {
+                             const activePids = matchPlayerOrder.filter(pid => !room.players[pid]?.isEliminated && !updates[`players.${pid}.isEliminated`]);
+                             if (activePids.length > 1) {
+                                 let minTiles = Infinity;
+                                 let losers = [];
+                                 activePids.forEach(pid => {
+                                     const t = updates[`players.${pid}.tiles`] !== undefined ? updates[`players.${pid}.tiles`] : (room.players[pid].tiles || 0);
+                                     if (t < minTiles) { minTiles = t; losers = [pid]; }
+                                     else if (t === minTiles) { losers.push(pid); }
+                                 });
+                                 const loserId = losers[Math.floor(Math.random() * losers.length)];
+                                 eliminatedThisTurn = loserId;
+                                 
+                                 updates[`players.${loserId}.isEliminated`] = true;
+                                 updates[`players.${loserId}.tiles`] = 0;
+                                 updates[`players.${loserId}.inventory`] = [];
+                                 updates.eliminationRank = [loserId, ...(updates.eliminationRank || room.eliminationRank || [])];
+                                 
+                                 // Distruzione a catena del territorio
+                                 const loserTiles = Object.keys(currentBoard).filter(k => currentBoard[k]?.owner === loserId).sort(() => 0.5 - Math.random());
+                                 loserTiles.forEach((k, i) => {
+                                     currentBoard[k] = { ...currentBoard[k], owner: null, item: null, isSpawn: false, explodedAt: Date.now(), explodeDelay: i * 100, oldColor: room.players[loserId].color };
+                                     updates[`board.${k}`] = currentBoard[k];
+                                 });
+                                 
+                                 updates.globalAction = { msg: `☠️ ELIMINAZIONE! ${room.players[loserId].n} è stato distrutto!`, id: Date.now() };
+                             }
+                         }
+                         // LOGICA METEO E DROP
+                         else if (!eliminatedThisTurn && isHost && room.config.eventsEnabled && nextRound > 1 && Math.random() < 0.30) {
+                             const ev = EVENT_TYPES[Math.floor(Math.random() * EVENT_TYPES.length)];
+                             updates.globalAction = { msg: `🚨 METEO: ${ev.n}! ${ev.desc}`, id: Date.now() };
+                             
+                             if (ev.id === 'tempesta' || ev.id === 'carestia' || ev.id === 'glaciale') {
+                                 updates.currentEvent = ev.id;
+                             } 
+                             else if (ev.id === 'robin_hood') {
+                                 const activePids = matchPlayerOrder.filter(pid => !room.players[pid]?.isEliminated);
+                                 const sortedPlayers = [...activePids].sort((a, b) => (room.players[b].tiles || 0) - (room.players[a].tiles || 0));
+                                 const first = sortedPlayers[0]; const last = sortedPlayers[sortedPlayers.length - 1];
+                                 
+                                 let firstTiles = Object.keys(currentBoard).filter(k => currentBoard[k]?.owner === first && !currentBoard[k]?.isSpawn);
+                                 const toLose = firstTiles.sort(() => 0.5 - Math.random()).slice(0, 3);
+                                 toLose.forEach(k => { currentBoard[k] = { ...currentBoard[k], owner: null, item: null }; updates[`board.${k}`] = currentBoard[k]; });
+                                 updates[`players.${first}.tiles`] = Math.max(1, (room.players[first].tiles || 1) - toLose.length);
 
-                         let emptyTiles = Object.keys(currentBoard).filter(k => currentBoard[k] && !currentBoard[k].owner && !currentBoard[k].isWall);
-                         const toGain = emptyTiles.sort(() => 0.5 - Math.random()).slice(0, 3);
-                         toGain.forEach(k => { currentBoard[k] = { ...currentBoard[k], owner: last, item: null }; updates[`board.${k}`] = currentBoard[k]; });
-                         updates[`players.${last}.tiles`] = (room.players[last].tiles || 1) + toGain.length;
+                                 let emptyTiles = Object.keys(currentBoard).filter(k => currentBoard[k] && !currentBoard[k].owner && !currentBoard[k].isWall);
+                                 const toGain = emptyTiles.sort(() => 0.5 - Math.random()).slice(0, 3);
+                                 toGain.forEach(k => { currentBoard[k] = { ...currentBoard[k], owner: last, item: null }; updates[`board.${k}`] = currentBoard[k]; });
+                                 updates[`players.${last}.tiles`] = (room.players[last].tiles || 1) + toGain.length;
+                             }
+                             else if (ev.id === 'festa') {
+                                 matchPlayerOrder.filter(pid => !room.players[pid]?.isEliminated).forEach(pid => { updates[`players.${pid}.modifier`] = (room.players[pid].modifier || 0) + 2; });
+                             }
+                             else if (ev.id === 'cataclisma') {
+                                 const allOwned = Object.keys(currentBoard).filter(k => currentBoard[k]?.owner && !currentBoard[k]?.isSpawn);
+                                 const toDestroy = allOwned.sort(() => 0.5 - Math.random()).slice(0, Math.max(1, Math.floor(allOwned.length * 0.15)));
+                                 toDestroy.forEach(k => { currentBoard[k] = { ...currentBoard[k], owner: null, item: null }; updates[`board.${k}`] = currentBoard[k]; });
+                                 matchPlayerOrder.filter(pid => !room.players[pid]?.isEliminated).forEach(pid => { updates[`players.${pid}.tiles`] = Object.values(currentBoard).filter(v => v?.owner === pid).length; });
+                             }
+                             else if (ev.id === 'meteoriti') {
+                                 let emptyTilesMet = Object.keys(currentBoard).filter(k => currentBoard[k] && !currentBoard[k].owner && !currentBoard[k].isSpawn && !currentBoard[k].item);
+                                 const meteors = emptyTilesMet.sort(() => 0.5 - Math.random()).slice(0, 2);
+                                 meteors.forEach(k => { currentBoard[k] = { ...currentBoard[k], owner: null, item: null, isWall: true }; updates[`board.${k}`] = currentBoard[k]; });
+                             }
+                         }
+                         else if (!eliminatedThisTurn && isHost && Math.random() < 0.08) {
+                             const emptyTiles = Object.keys(currentBoard).filter(k => currentBoard[k] && !currentBoard[k].owner && !currentBoard[k].item && !currentBoard[k].isWall);
+                             if (emptyTiles.length > 0) {
+                                 const randomTile = emptyTiles[Math.floor(Math.random() * emptyTiles.length)];
+                                 const randomItem = ITEMS[Math.floor(Math.random() * ITEMS.length)].id;
+                                 updates[`board.${randomTile}.item`] = randomItem;
+                                 updates.globalAction = { msg: `🎁 Un nuovo strumento è apparso sulla mappa!`, id: Date.now() };
+                             }
+                         }
                      }
-                     else if (ev.id === 'festa') {
-                         matchPlayerOrder.forEach(pid => { updates[`players.${pid}.modifier`] = (room.players[pid].modifier || 0) + 2; });
-                     }
-                     else if (ev.id === 'cataclisma') {
-                         const allOwned = Object.keys(currentBoard).filter(k => currentBoard[k]?.owner && !currentBoard[k]?.isSpawn);
-                         const toDestroy = allOwned.sort(() => 0.5 - Math.random()).slice(0, Math.max(1, Math.floor(allOwned.length * 0.15)));
-                         toDestroy.forEach(k => { currentBoard[k] = { ...currentBoard[k], owner: null, item: null }; updates[`board.${k}`] = currentBoard[k]; });
-                         matchPlayerOrder.forEach(pid => { updates[`players.${pid}.tiles`] = Object.values(currentBoard).filter(v => v?.owner === pid).length; });
-                     }
-                     else if (ev.id === 'meteoriti') {
-                         let emptyTilesMet = Object.keys(currentBoard).filter(k => currentBoard[k] && !currentBoard[k].owner && !currentBoard[k].isSpawn && !currentBoard[k].item);
-                         const meteors = emptyTilesMet.sort(() => 0.5 - Math.random()).slice(0, 2);
-                         meteors.forEach(k => { currentBoard[k] = { ...currentBoard[k], owner: null, item: null, isWall: true }; updates[`board.${k}`] = currentBoard[k]; });
-                     }
-                 }
-                 else if (isHost && Math.random() < 0.08) {
-                     const emptyTiles = Object.keys(room.board || {}).filter(k => room.board[k] && !room.board[k].owner && !room.board[k].item && !room.board[k].isWall);
-                     if (emptyTiles.length > 0) {
-                         const randomTile = emptyTiles[Math.floor(Math.random() * emptyTiles.length)];
-                         const randomItem = ITEMS[Math.floor(Math.random() * ITEMS.length)].id;
-                         updates[`board.${randomTile}.item`] = randomItem;
-                         updates.globalAction = { msg: `🎁 Un nuovo strumento è apparso sulla mappa!`, id: Date.now() };
-                     }
-                 }
+                     loopCount++;
+                     if(loopCount > matchPlayerOrder.length * 2) break; // Safety break
+                 } while (
+                     (room.players[matchPlayerOrder[nextIdx]]?.isEliminated || updates[`players.${matchPlayerOrder[nextIdx]}.isEliminated`] || eliminatedThisTurn === matchPlayerOrder[nextIdx]) 
+                     && matchPlayerOrder.filter(pid => !room.players[pid]?.isEliminated && !updates[`players.${pid}.isEliminated`] && pid !== eliminatedThisTurn).length > 0
+                 );
              }
 
-             const totalTiles = Object.keys(room.board || {}).filter(k => !room.board[k]?.isWall).length;
-             const ownedTiles = Object.values(room.board || {}).filter(v => v?.owner).length;
+             const activeAfterUpdates = matchPlayerOrder.filter(pid => !room.players[pid]?.isEliminated && !updates[`players.${pid}.isEliminated`] && pid !== eliminatedThisTurn);
+             const totalTiles = Object.keys(currentBoard).filter(k => !currentBoard[k]?.isWall).length;
+             const ownedTiles = Object.values(currentBoard).filter(v => v?.owner).length;
              
-             if (nextRound > room.config.maxRounds || ownedTiles >= totalTiles) {
-                 await updateDoc(boardRef, { status: room.status.includes('match') ? 'match_finished' : 'finished' });
+             if (activeAfterUpdates.length <= 1 || nextRound > room.config.maxRounds || ownedTiles >= totalTiles) {
+                 if (activeAfterUpdates.length === 1 && room.config.mode === 'elimination') {
+                     const winnerId = activeAfterUpdates[0];
+                     updates.eliminationRank = [winnerId, ...(updates.eliminationRank || room.eliminationRank || [])];
+                 }
+                 updates.status = room.status.includes('match') ? 'match_finished' : 'finished';
+                 await updateDoc(boardRef, updates);
                  return;
              }
 
              updates.turnIndex = nextIdx; updates.round = nextRound; updates.actionState = 'rolling'; updates.movesLeft = 0; updates.currentRoll = 0;
-             updates.lastAction = { msg: `👉 Tocca a ${room.players[matchPlayerOrder[nextIdx]]?.n}!`, id: Date.now() };
+             if(!eliminatedThisTurn) updates.lastAction = { msg: `👉 Tocca a ${room.players[matchPlayerOrder[nextIdx]]?.n}!`, id: Date.now() };
              await updateDoc(boardRef, updates);
           };
 
@@ -1381,7 +1464,21 @@
 
           const sourceForPlayable = room.currentEvent === 'tempesta' ? matchPlayerOrder[(matchPlayerOrder.indexOf(user.uid) + 1) % matchPlayerOrder.length] : user.uid;
           const playableTiles = useMemo(() => isMyTurn && room.actionState === 'moving' && !isGameEnded ? getPlayableTiles(sourceForPlayable, room.board || {}, boardSize, room.config.invasionMode, user.uid) : [], [isMyTurn, room.actionState, room.board, boardSize, user.uid, isGameEnded, room.config.invasionMode, room.currentEvent, sourceForPlayable]);
-          const leaderboard = matchPlayerOrder.map(id => room.players[id]).filter(Boolean).sort((a, b) => (b.tiles||0) - (a.tiles||0));
+          
+          // Costruzione Leaderboard aggiornata per Eliminazione
+          const leaderboard = matchPlayerOrder.map(id => room.players[id]).filter(Boolean).sort((a, b) => {
+              if (room.config.mode === 'elimination') {
+                  if (a.isEliminated && !b.isEliminated) return 1;
+                  if (!a.isEliminated && b.isEliminated) return -1;
+                  if (a.isEliminated && b.isEliminated) {
+                      const rankA = room.eliminationRank?.indexOf(a.id) ?? -1;
+                      const rankB = room.eliminationRank?.indexOf(b.id) ?? -1;
+                      return rankA - rankB; 
+                  }
+              }
+              return (b.tiles||0) - (a.tiles||0);
+          });
+          
           const iconSizeClass = boardSize > 14 ? 'text-xs md:text-sm' : (boardSize > 10 ? 'text-base md:text-lg' : 'text-xl md:text-3xl');
 
           const isTournament = room.status === 'match_finished';
@@ -1398,6 +1495,7 @@
           return (
             <div className="h-[100dvh] flex flex-col bg-slate-900 text-slate-100 overflow-hidden relative">
               
+              {/* SCHERMATA RISULTATI */}
               {isGameEnded && showResultsModal && (
                   <div className="absolute inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-md">
                       <div className="bg-slate-800 p-6 md:p-10 rounded-3xl border border-slate-600 shadow-2xl max-w-4xl w-full max-h-full overflow-y-auto flex flex-col items-center">
@@ -1444,10 +1542,15 @@
                                       {leaderboard.map((p, idx) => {
                                           if(!p) return null;
                                           return (
-                                              <div key={p.id} className={`flex items-center gap-4 bg-slate-800 p-3 md:p-4 rounded-xl border-2 transition-all ${idx === 0 ? 'border-yellow-400 shadow-[0_0_20px_rgba(250,204,21,0.4)] scale-105' : 'border-slate-700'}`}>
+                                              <div key={p.id} className={`flex items-center gap-4 bg-slate-800 p-3 md:p-4 rounded-xl border-2 transition-all ${idx === 0 ? 'border-yellow-400 shadow-[0_0_20px_rgba(250,204,21,0.4)] scale-105' : 'border-slate-700'} ${p.isEliminated ? 'opacity-50 grayscale' : ''}`}>
                                                   <div className={`font-black w-8 text-center ${idx === 0 ? 'text-yellow-400 text-3xl' : 'text-slate-500 text-xl'}`}>{idx+1}°</div>
                                                   <img src={CHARACTERS.find(c=>c.id===p.charId)?.i} className={`w-14 h-14 rounded-full object-cover shrink-0 ${idx === 0 ? 'border-4 border-yellow-400' : 'border-2 border-slate-600'}`} style={idx !== 0 ? {borderColor: p.color} : {}} />
-                                                  <div className="flex-1 min-w-0 text-left"><div className="font-bold truncate text-xl" style={{color: p.color}}>{p.n}</div><div className="text-sm text-slate-400">{p.tiles} territori conquistati</div></div>
+                                                  <div className="flex-1 min-w-0 text-left">
+                                                      <div className="font-bold truncate text-xl" style={{color: p.color}}>
+                                                          {p.n} {p.isEliminated && <span className="text-red-500 text-xs ml-2">☠️ ELIMINATO</span>}
+                                                      </div>
+                                                      <div className="text-sm text-slate-400">{p.tiles} territori {p.isEliminated ? 'al momento della morte' : 'conquistati'}</div>
+                                                  </div>
                                                   {idx === 0 && <div className="text-4xl animate-bounce">🏆</div>}
                                               </div>
                                           )
@@ -1474,6 +1577,11 @@
                           <div className="text-xl font-bold bg-slate-700 px-4 py-2 rounded-lg">{isGameEnded ? 'FINE PARTITA' : `Round ${room.round}/${room.config.maxRounds}`}</div>
                           {room.config.mode === 'tournament' && ( <div className="text-orange-400 font-bold bg-slate-900 px-3 py-1 rounded border border-orange-500/50 hidden sm:block">TORNEO</div> )}
                       </div>
+                      {room.config.mode === 'elimination' && !isGameEnded && (
+                          <div className="text-[10px] sm:text-xs font-bold text-red-400 bg-red-950/50 px-2 py-0.5 rounded border border-red-500/30">
+                              ☠️ Elim. tra {Math.ceil((room.round) / 3) * 3 + 1 - room.round} round!
+                          </div>
+                      )}
                       {activeEventObj && !isGameEnded && (
                           <div className="text-xs font-bold text-white bg-purple-700 px-3 py-1 rounded-full flex items-center gap-2 event-active mt-1">
                               <span>{activeEventObj.i}</span> {activeEventObj.n} Attivo!
@@ -1485,10 +1593,11 @@
                       {matchPlayerOrder.map((pid, idx) => {
                           const p = room.players[pid]; if (!p) return null; const c = CHARACTERS.find(x => x.id === p.charId); const isActive = idx === room.turnIndex && !isGameEnded;
                           return (
-                              <div key={pid} className={`relative transition-all duration-300 ${isActive ? 'transform scale-110 z-10' : 'opacity-60 scale-90'}`}>
+                              <div key={pid} className={`relative transition-all duration-300 ${isActive ? 'transform scale-110 z-10' : 'opacity-60 scale-90'} ${p.isEliminated ? 'grayscale opacity-20' : ''}`}>
                                   <img src={c?.i} className={`w-14 h-14 rounded-full border-4 object-cover ${isActive ? 'animate-pulse shadow-[0_0_15px_currentColor]' : ''}`} style={{borderColor: p.color, color: p.color}} />
                                   {p.modifier !== 0 && <span className="absolute -top-2 -right-2 bg-slate-900 rounded-full w-6 h-6 flex items-center justify-center text-xs font-bold border border-slate-600">{p.modifier>0?'+'+p.modifier:p.modifier}</span>}
                                   {p.hasStregoneria && <span className="absolute -bottom-2 -left-2 bg-purple-900 rounded-full w-6 h-6 flex items-center justify-center text-xs font-bold border border-purple-500 shadow-[0_0_10px_purple]">🔮</span>}
+                                  {p.isEliminated && <span className="absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 text-2xl drop-shadow-md">☠️</span>}
                               </div>
                           )
                       })}
@@ -1520,7 +1629,10 @@
                               if (!cell) return <div key={key} className="bg-transparent" />;
                               const isPlayable = playableTiles.includes(key);
                               const ownerPlayer = cell.owner ? room.players[cell.owner] : null;
-                              const ownerColor = ownerPlayer ? ownerPlayer.color : (cell.isWall ? '#0f172a' : '#1e293b'); 
+                              
+                              const isExploding = cell.explodedAt && (Date.now() - cell.explodedAt < 4000);
+                              
+                              const ownerColor = ownerPlayer ? ownerPlayer.color : (isExploding ? cell.oldColor : (cell.isWall ? '#0f172a' : '#1e293b')); 
                               const ownerCharId = ownerPlayer ? ownerPlayer.charId : null;
                               const ownerCharImg = ownerCharId ? CHARACTERS.find(c => c.id === ownerCharId)?.i : null;
 
@@ -1530,14 +1642,16 @@
                                   cellStyle = { backgroundImage: `linear-gradient(${overlayColor}, ${overlayColor}), url(${ownerCharImg})`, backgroundSize: 'cover', backgroundPosition: 'center', boxShadow: `inset 0 0 0 1px rgba(0,0,0,0.3)` };
                               }
                               if (cell.isWall) { cellStyle = { backgroundColor: '#0f172a', backgroundImage: 'radial-gradient(#1e293b 10%, transparent 20%), radial-gradient(#1e293b 10%, transparent 20%)', backgroundSize: '10px 10px', backgroundPosition: '0 0, 5px 5px' }; }
+                              if (isExploding) { cellStyle.animationDelay = `${cell.explodeDelay || 0}ms`; }
 
                               return (
                                   <div 
                                       key={key} onClick={() => clickTile(key)}
                                       className={`relative transition-all duration-200 flex items-center justify-center overflow-hidden rounded-sm w-full h-full aspect-square
                                           ${isPlayable ? 'cursor-pointer animate-pulse z-10 scale-[1.03] ring-2 ring-white/70 shadow-xl' : ''}
-                                          ${!cell.owner && !isPlayable && !cell.isWall ? 'opacity-80 hover:opacity-100' : ''}
+                                          ${!cell.owner && !isPlayable && !cell.isWall && !isExploding ? 'opacity-80 hover:opacity-100' : ''}
                                           ${cell.isWall ? 'border border-slate-900 shadow-inner' : ''}
+                                          ${isExploding ? 'explode-anim' : ''}
                                       `}
                                       style={cellStyle}
                                   >
@@ -1562,8 +1676,8 @@
                           {leaderboard.map((p, idx) => {
                               if(!p) return null;
                               const c = CHARACTERS.find(x => x.id === p.charId);
-                              const isTargetable = targetAction !== null && p.id !== user.uid && !p.isTrapped;
-                              const isEliminated = isGameEnded && idx >= winnersCount;
+                              const isTargetable = targetAction !== null && p.id !== user.uid && !p.isTrapped && !p.isEliminated;
+                              const isEliminated = (isGameEnded && idx >= winnersCount) || p.isEliminated;
                               
                               return (
                                   <div 
@@ -1578,7 +1692,9 @@
                                       <div className="font-bold text-slate-500 w-4">{idx+1}</div>
                                       <img src={c?.i} className="w-10 h-10 rounded object-cover mx-2 border border-slate-600" />
                                       <div className="flex-1 min-w-0">
-                                          <div className="font-bold text-sm truncate" style={{color: p.color}}>{p.n}</div>
+                                          <div className="font-bold text-sm truncate" style={{color: p.color}}>
+                                              {p.n} {p.isEliminated && <span className="text-red-500 text-xs ml-1">☠️</span>}
+                                          </div>
                                           <div className="text-xs text-slate-300">{p.tiles} caselle</div>
                                       </div>
                                       <div className="flex gap-1 ml-1">
@@ -1598,6 +1714,7 @@
                               <h4 className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-2">Pannello Controllo</h4>
                               
                               {!isPlayingThisMatch ? ( <div className="text-center py-4 text-slate-400 italic bg-slate-800 rounded-xl">Spettatore 🍿</div>
+                              ) : me?.isEliminated ? ( <div className="text-center py-4 text-red-500 font-bold bg-red-950/30 rounded-xl border border-red-500/50">Sei stato eliminato. ☠️</div>
                               ) : !isMyTurn ? ( <div className="text-center py-4 text-slate-500 font-bold bg-slate-800 rounded-xl">In attesa...</div>
                               ) : (
                                   <div className="space-y-3">
