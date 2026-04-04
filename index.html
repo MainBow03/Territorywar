@@ -20,7 +20,7 @@
         .scrollbar-hide::-webkit-scrollbar { display: none; }
         .scrollbar-hide { -ms-overflow-style: none; scrollbar-width: none; }
         /* Custom scrollbar elegante per scorrimento orizzontale categorie */
-        .custom-scrollbar::-webkit-scrollbar { height: 6px; }
+        .custom-scrollbar::-webkit-scrollbar { height: 6px; width: 6px; }
         .custom-scrollbar::-webkit-scrollbar-track { background: transparent; }
         .custom-scrollbar::-webkit-scrollbar-thumb { background: #475569; border-radius: 10px; }
         .custom-scrollbar::-webkit-scrollbar-thumb:hover { background: #64748b; }
@@ -325,6 +325,7 @@
             setTimeout(() => setGlobalNotice(null), 4000);
           };
 
+          // Ascolta eventi globali (per strumenti e bot)
           useEffect(() => {
               if(room?.globalAction && room.globalAction.id !== window.lastGlobalActionId) {
                   window.lastGlobalActionId = room.globalAction.id;
@@ -441,16 +442,17 @@
             setRoom(null);
           };
 
-          if (!user) return <div className="min-h-screen bg-gray-900 flex items-center justify-center text-white">Caricamento...</div>;
+          if (!user) return <div className="min-h-[100dvh] bg-gray-900 flex items-center justify-center text-white">Caricamento...</div>;
 
           return (
-            <div className="min-h-screen bg-slate-900 text-slate-100 font-sans selection:bg-indigo-500 selection:text-white">
+            <div className="min-h-[100dvh] bg-slate-900 text-slate-100 font-sans selection:bg-indigo-500 selection:text-white">
               {notification && (
                 <div className="fixed top-4 left-1/2 transform -translate-x-1/2 bg-indigo-600 text-white px-6 py-3 rounded-full shadow-2xl z-50 animate-bounce">
                   {notification}
                 </div>
               )}
 
+              {/* Notifica Globale di Gioco (Centrale gigante e visibile a tutti) */}
               {globalNotice && (
                 <div className="fixed top-1/4 left-1/2 transform -translate-x-1/2 -translate-y-1/2 bg-red-600/90 backdrop-blur-sm text-white px-10 py-5 rounded-2xl shadow-[0_0_40px_rgba(220,38,38,0.6)] z-[60] text-xl font-black text-center border-2 border-red-400 animate-bounce">
                   🚨 {globalNotice} 🚨
@@ -458,7 +460,7 @@
               )}
 
               {!room ? (
-                <div className="flex flex-col items-center justify-center min-h-screen p-4">
+                <div className="flex flex-col items-center justify-center min-h-[100dvh] p-4">
                   <div className="bg-slate-800 p-8 rounded-2xl shadow-xl w-full max-w-md border border-slate-700">
                     <h1 className="text-4xl font-black text-center mb-8 bg-gradient-to-r from-indigo-400 to-purple-400 bg-clip-text text-transparent">TERRITORY WAR</h1>
                     
@@ -524,19 +526,26 @@
           const selectChar = async (charId) => {
             const isTaken = Object.values(room.players).some(p => p.charId === charId);
             if (isTaken) return showNotif("Personaggio già preso!");
-            await updateDoc(doc(getCollectionRef(), room.id), { [`players.${user.uid}.charId`]: charId });
+            
+            await updateDoc(doc(getCollectionRef(), room.id), {
+              [`players.${user.uid}.charId`]: charId
+            });
           };
 
           const toggleReady = async () => {
             if (!me?.charId) return showNotif("Scegli un personaggio prima!");
-            await updateDoc(doc(getCollectionRef(), room.id), { [`players.${user.uid}.ready`]: !me.ready });
+            await updateDoc(doc(getCollectionRef(), room.id), {
+              [`players.${user.uid}.ready`]: !me.ready
+            });
           };
 
           const addBot = async () => {
             const maxAllowed = room.config.mode === 'tournament' ? room.config.tournamentSize : room.config.players;
             if (!isHost || room.playerOrder.length >= maxAllowed) return;
+            
             const botId = `bot_${Math.random().toString(36).substring(2, 7)}`;
             const color = '#' + Math.floor(Math.random()*16777215).toString(16).padStart(6, '0');
+            
             const pickedChars = Object.values(room.players).map(p => p.charId).filter(Boolean);
             const available = CHARACTERS.filter(c => !pickedChars.includes(c.id));
             const char = available[Math.floor(Math.random() * available.length)];
@@ -553,7 +562,11 @@
               const pickedChars = Object.values(existingPlayersObj).map(p => p.charId).filter(Boolean);
               const available = CHARACTERS.filter(c => !pickedChars.includes(c.id));
               const char = available[Math.floor(Math.random() * available.length)];
-              return { id: botId, data: { id: botId, n: `[BOT] ${char.n}`, isBot: true, color, charId: char.id, ready: true, hasStregoneria: false } };
+              
+              return { 
+                  id: botId, 
+                  data: { id: botId, n: `[BOT] ${char.n}`, isBot: true, color, charId: char.id, ready: true, hasStregoneria: false } 
+              };
           };
 
           const startGame = async () => {
@@ -561,16 +574,18 @@
             const allReady = Object.values(room.players).every(p => p?.ready);
             if (!allReady) return showNotif("Tutti devono essere pronti!");
 
-            initAudio();
+            initAudio(); // Inizializza audio interazione host
 
             if (room.config.mode === 'tournament') {
                 let finalPlayersObj = { ...room.players };
                 let finalPlayerOrder = [ ...room.playerOrder ];
+                
                 while (finalPlayerOrder.length < room.config.tournamentSize) {
                     const bot = generateTournamentBot(finalPlayersObj, finalPlayerOrder);
                     finalPlayersObj[bot.id] = bot.data;
                     finalPlayerOrder.push(bot.id);
                 }
+
                 const shuffledOrder = [...finalPlayerOrder].sort(() => Math.random() - 0.5);
                 const tournamentPhases = buildTournamentTree(room.config.tournamentSize);
                 
@@ -578,25 +593,39 @@
                 const firstPhaseMatchSize = tournamentPhases[0].matchSize;
                 tournamentPhases[0].matches.forEach(match => {
                     for(let i=0; i < firstPhaseMatchSize; i++) {
-                        if (shuffledOrder[playerIdx]) { match.players.push(shuffledOrder[playerIdx]); playerIdx++; }
+                        if (shuffledOrder[playerIdx]) {
+                            match.players.push(shuffledOrder[playerIdx]);
+                            playerIdx++;
+                        }
                     }
                 });
 
                 await updateDoc(doc(getCollectionRef(), room.id), {
-                    status: 'tournament_bracket', players: finalPlayersObj, playerOrder: finalPlayerOrder,
-                    tournament: { phases: tournamentPhases, currentPhase: 0, currentMatch: 0 }
+                    status: 'tournament_bracket',
+                    players: finalPlayersObj,
+                    playerOrder: finalPlayerOrder,
+                    tournament: {
+                        phases: tournamentPhases,
+                        currentPhase: 0,
+                        currentMatch: 0
+                    }
                 });
 
             } else {
                 const board = generateBoard(room.config.size, room.config.shape);
                 const spawns = getSpawnPoints(room.config.size, room.playerOrder.length, board);
-                const updates = { status: 'playing', turnIndex: 0, round: 1, actionState: 'rolling', movesLeft: 0, currentRoll: 0 };
+                
+                const updates = { status: 'playing', board: board, turnIndex: 0, round: 1, actionState: 'rolling', movesLeft: 0, currentRoll: 0 };
                 room.playerOrder.forEach((pid, idx) => {
-                  updates[`players.${pid}.tiles`] = 1; updates[`players.${pid}.inventory`] = [];
-                  updates[`players.${pid}.modifier`] = 0; updates[`players.${pid}.isTrapped`] = false; updates[`players.${pid}.hasStregoneria`] = false;
-                  if (spawns[idx]) board[`${spawns[idx]}`] = { owner: pid, item: null };
+                  updates[`players.${pid}.tiles`] = 1;
+                  updates[`players.${pid}.inventory`] = [];
+                  updates[`players.${pid}.modifier`] = 0;
+                  updates[`players.${pid}.isTrapped`] = false;
+                  updates[`players.${pid}.hasStregoneria`] = false;
+                  if (spawns[idx]) {
+                    updates[`board.${spawns[idx]}`] = { owner: pid, item: null };
+                  }
                 });
-                updates.board = board;
                 await updateDoc(doc(getCollectionRef(), room.id), updates);
             }
           };
@@ -604,13 +633,15 @@
           const maxDisplayPlayers = room.config.mode === 'tournament' ? room.config.tournamentSize : room.config.players;
 
           return (
-            <div className="max-w-6xl mx-auto p-4 flex flex-col md:flex-row gap-6 h-screen">
-              <div className="w-full md:w-1/3 flex flex-col gap-4 overflow-y-auto pr-2 pb-4">
+            <div className="max-w-6xl mx-auto p-4 flex flex-col md:flex-row gap-6 h-[100dvh]">
+              {/* Sidebar Settings & Players */}
+              <div className="w-full md:w-1/3 flex flex-col gap-4 overflow-y-auto pr-2 custom-scrollbar relative">
                 <div className="bg-slate-800 p-6 rounded-2xl border border-slate-700 shrink-0">
                   <div className="flex justify-between items-center mb-4">
                     <h2 className="text-xl font-bold text-white">Stanza: <span className="text-indigo-400 select-all">{room.id}</span></h2>
                     <button onClick={onLeave} className="text-red-400 hover:text-red-300 text-sm">Esci</button>
                   </div>
+                  
                   {isHost ? (
                     <div className="space-y-4">
                       <div>
@@ -631,8 +662,10 @@
                           <div>
                             <label className="block text-sm text-slate-400 mb-1">Partecipanti Torneo</label>
                             <select value={room.config.tournamentSize} onChange={(e) => updateConfig('tournamentSize', parseInt(e.target.value))} className="w-full bg-slate-700 rounded p-2 text-white font-bold">
-                              <option value="8">8 Giocatori (1 Girone)</option><option value="16">16 Giocatori (2 Gironi)</option>
-                              <option value="32">32 Giocatori (4 Gironi)</option><option value="64">64 Giocatori (8 Gironi)</option>
+                              <option value="8">8 Giocatori (1 Girone)</option>
+                              <option value="16">16 Giocatori (2 Gironi)</option>
+                              <option value="32">32 Giocatori (4 Gironi)</option>
+                              <option value="64">64 Giocatori (8 Gironi)</option>
                             </select>
                             <p className="text-xs text-slate-400 mt-1">I posti vuoti verranno riempiti dai Bot all'avvio.</p>
                           </div>
@@ -644,12 +677,17 @@
                             <button onClick={() => updateConfig('invasionMode', false)} className={`flex-1 py-2 rounded ${!room.config.invasionMode ? 'bg-indigo-500 text-white font-bold' : 'bg-slate-700 text-slate-300'}`}>Pacifica</button>
                             <button onClick={() => updateConfig('invasionMode', true)} className={`flex-1 py-2 rounded ${room.config.invasionMode ? 'bg-red-500 text-white font-bold' : 'bg-slate-700 text-slate-300'}`}>Guerra</button>
                         </div>
+                        <p className="text-xs text-slate-400 mt-1">
+                          {!room.config.invasionMode ? 'Non puoi rubare le caselle altrui.' : 'Puoi conquistare le caselle nemiche.'}
+                        </p>
                       </div>
 
                       <div>
                         <label className="block text-sm text-slate-400 mb-1">Mappa</label>
                         <select value={room.config.shape} onChange={(e) => updateConfig('shape', e.target.value)} className="w-full bg-slate-700 rounded p-2 text-white">
-                          <option value="square">Quadrato</option><option value="circle">Cerchio</option><option value="diamond">Rombo</option>
+                          <option value="square">Quadrato</option>
+                          <option value="circle">Cerchio</option>
+                          <option value="diamond">Rombo</option>
                         </select>
                       </div>
                       <div>
@@ -668,13 +706,18 @@
                       )}
                     </div>
                   ) : (
-                     <div className="text-slate-400 text-sm italic">In attesa dell'host per le impostazioni...</div>
+                     <div className="text-slate-400 text-sm italic">
+                        In attesa dell'host per le impostazioni...<br/>
+                        Modalità: <strong className="text-white">{room.config.mode === 'tournament' ? 'Torneo' : 'Standard'}</strong><br/>
+                        Invasione: <strong className="text-white">{room.config.invasionMode ? 'Guerra (Ruba caselle)' : 'Pacifica (No furto)'}</strong><br/>
+                        Mappa: {room.config.shape} {room.config.size}x{room.config.size}
+                     </div>
                   )}
                 </div>
 
-                <div className="bg-slate-800 p-6 rounded-2xl border border-slate-700 shrink-0">
-                  <h3 className="font-bold mb-4">Giocatori in Lobby ({room.playerOrder.length}/{maxDisplayPlayers})</h3>
-                  <div className="space-y-3">
+                <div className="bg-slate-800 p-6 rounded-2xl border border-slate-700 flex-1 flex flex-col min-h-0">
+                  <h3 className="font-bold mb-4 shrink-0">Giocatori in Lobby ({room.playerOrder.length}/{maxDisplayPlayers})</h3>
+                  <div className="space-y-3 flex-1 overflow-y-auto pr-2 custom-scrollbar">
                     {room.playerOrder.map(pid => {
                       const p = room.players[pid];
                       if(!p) return null;
@@ -692,16 +735,24 @@
                     })}
                   </div>
                   
-                  <div className="mt-6 border-t border-slate-700 pt-4">
+                  <div className="mt-6 border-t border-slate-700 pt-4 shrink-0">
                     <h3 className="font-bold mb-3 text-sm text-slate-300">Scegli il tuo Colore</h3>
                     <div className="flex items-center gap-4">
-                      <input type="color" value={me?.color || '#ffffff'} onChange={(e) => updateDoc(doc(getCollectionRef(), room.id), { [`players.${user.uid}.color`]: e.target.value })} className="w-16 h-16 rounded-xl cursor-pointer bg-slate-900 border-2 border-slate-600 p-1 shrink-0" />
-                      <span className="text-sm text-slate-400 leading-snug">Clicca sul quadrato per aprire la tavolozza e creare la tinta della tua fazione.</span>
+                      <input 
+                        type="color" 
+                        value={me?.color || '#ffffff'} 
+                        onChange={(e) => updateDoc(doc(getCollectionRef(), room.id), { [`players.${user.uid}.color`]: e.target.value })} 
+                        className="w-16 h-16 rounded-xl cursor-pointer bg-slate-900 border-2 border-slate-600 p-1 shrink-0" 
+                        title="Clicca per scegliere un colore" 
+                      />
+                      <span className="text-sm text-slate-400 leading-snug">
+                        Clicca sul quadrato per aprire la tavolozza e creare la tinta della tua fazione.
+                      </span>
                     </div>
                   </div>
                 </div>
 
-                <div className="flex flex-col gap-2 shrink-0 mt-auto">
+                <div className="flex flex-col gap-2 shrink-0 mt-auto sticky bottom-0 bg-slate-900/95 backdrop-blur py-4 z-50 border-t border-slate-800 shadow-[0_-10px_20px_rgba(15,23,42,0.9)] w-full">
                   <button onClick={toggleReady} className={`w-full py-4 rounded-xl font-black text-lg shadow-lg text-white ${me?.ready ? 'bg-red-600 hover:bg-red-500' : 'bg-emerald-600 hover:bg-emerald-500'}`}>
                     {me?.ready ? 'Annulla Pronto' : 'SONO PRONTO'}
                   </button>
@@ -713,11 +764,16 @@
                 </div>
               </div>
 
+              {/* Roster Personaggi */}
               <div className="w-full md:w-2/3 bg-slate-800 rounded-2xl border border-slate-700 p-6 flex flex-col h-full overflow-hidden">
                 <h2 className="text-2xl font-black mb-4 shrink-0">Scegli il tuo personaggio</h2>
+                
+                {/* Categories */}
                 <div className="flex gap-2 overflow-x-auto pb-4 mb-4 shrink-0 custom-scrollbar">
                   {categories.map(cat => (
-                    <button key={cat} onClick={() => setFilter(cat)} className={`px-4 py-1.5 rounded-full text-sm whitespace-nowrap transition-colors ${filter === cat ? 'bg-indigo-500 text-white font-bold' : 'bg-slate-700 text-slate-300 hover:bg-slate-600'}`}>{cat}</button>
+                    <button key={cat} onClick={() => setFilter(cat)} className={`px-4 py-1.5 rounded-full text-sm whitespace-nowrap transition-colors ${filter === cat ? 'bg-indigo-500 text-white font-bold' : 'bg-slate-700 text-slate-300 hover:bg-slate-600'}`}>
+                      {cat}
+                    </button>
                   ))}
                 </div>
 
@@ -752,18 +808,22 @@
             const { phases, currentPhase, currentMatch } = room.tournament;
             
             if (currentPhase >= phases.length) {
+                // Tabellone Riepilogo Finale Torneo
                 const finalPhase = phases[phases.length - 1];
                 const winnerId = finalPhase.matches[0].winners[0];
                 const winner = room.players[winnerId];
 
-                if (!winner) return <div className="min-h-screen bg-slate-950 text-white flex items-center justify-center">Calcolo in corso...</div>;
+                if (!winner) return <div className="min-h-[100dvh] bg-slate-950 text-white flex items-center justify-center">Calcolo in corso...</div>;
 
+                // Crea Recap di chi è stato eliminato dove
                 const recap = [];
                 for(let i = phases.length - 1; i >= 0; i--) {
                     const phase = phases[i];
                     const eliminatedHere = [];
                     phase.matches.forEach(m => {
-                        m.players.forEach(p => { if (!m.winners.includes(p) && room.players[p]) eliminatedHere.push(room.players[p]); });
+                        m.players.forEach(p => {
+                            if (!m.winners.includes(p) && room.players[p]) eliminatedHere.push(room.players[p]);
+                        });
                     });
                     if (eliminatedHere.length > 0) {
                         let phaseTitle = `Eliminati in ${phase.name}`;
@@ -774,8 +834,8 @@
                 }
 
                 return (
-                    <div className="min-h-screen flex items-center justify-center bg-slate-950 p-4">
-                      <div className="bg-slate-800 p-8 rounded-3xl border-4 border-orange-500 shadow-2xl max-w-4xl w-full max-h-[90vh] flex flex-col items-center overflow-y-auto">
+                    <div className="min-h-[100dvh] flex items-center justify-center bg-slate-950 p-4">
+                      <div className="bg-slate-800 p-8 rounded-3xl border-4 border-orange-500 shadow-2xl max-w-4xl w-full max-h-[90dvh] flex flex-col items-center overflow-y-auto">
                           <h1 className="text-5xl md:text-6xl font-black text-transparent bg-clip-text bg-gradient-to-r from-yellow-400 to-yellow-600 mb-8">CAMPIONE!</h1>
                           <div className="relative mb-6">
                               <img src={CHARACTERS.find(c=>c.id===winner.charId)?.i} className="w-48 h-48 rounded-full border-8 border-yellow-400 object-cover shadow-[0_0_40px_rgba(250,204,21,0.6)]" />
@@ -818,8 +878,11 @@
             const phase = phases[currentPhase];
             const match = phase.matches[currentMatch];
             
+            // Safe checks per il calcolo se sono tutti bot
             let isAllBots = true;
-            match.players.forEach(pid => { if (room.players[pid] && !room.players[pid].isBot) isAllBots = false; });
+            match.players.forEach(pid => {
+                if (room.players[pid] && !room.players[pid].isBot) isAllBots = false;
+            });
             const isUserPlaying = match.players.includes(user.uid);
 
             const startMatch = async () => {
@@ -837,43 +900,69 @@
                 
                 matchPlayers.forEach((pid, idx) => {
                   updates[`players.${pid}.tiles`] = 1; updates[`players.${pid}.inventory`] = [];
-                  updates[`players.${pid}.modifier`] = 0; updates[`players.${pid}.isTrapped`] = false; updates[`players.${pid}.hasStregoneria`] = false;
-                  if (spawns[idx]) { board[`${spawns[idx]}`] = { owner: pid, item: null }; }
+                  updates[`players.${pid}.modifier`] = 0; updates[`players.${pid}.isTrapped`] = false;
+                  updates[`players.${pid}.hasStregoneria`] = false;
+                  if (spawns[idx]) {
+                      board[`${spawns[idx]}`] = { owner: pid, item: null };
+                  }
                 });
-                updates.board = board; 
+                updates.board = board; // Aggiorniamo l'oggetto Board completo per non dare errori di cache
+                
                 await updateDoc(doc(getCollectionRef(), room.id), updates);
             };
 
             const simulateMatch = async () => {
                 if (!isHost) return;
+                
                 const matchPlayers = match.players;
                 const dynamicSize = matchPlayers.length >= 8 ? 14 : 10;
                 let fakeBoard = generateBoard(dynamicSize, room.config.shape);
-                const keys = Object.keys(fakeBoard);
-                keys.forEach(k => { if (fakeBoard[k]) fakeBoard[k].owner = matchPlayers[Math.floor(Math.random() * matchPlayers.length)]; });
 
-                const tilesCount = {}; matchPlayers.forEach(p => tilesCount[p] = 0);
+                const keys = Object.keys(fakeBoard);
+                keys.forEach(k => {
+                    if (fakeBoard[k]) {
+                        fakeBoard[k].owner = matchPlayers[Math.floor(Math.random() * matchPlayers.length)];
+                    }
+                });
+
+                const tilesCount = {};
+                matchPlayers.forEach(p => tilesCount[p] = 0);
                 Object.values(fakeBoard).forEach(c => { if(c && c.owner) tilesCount[c.owner]++; });
 
-                const updates = { status: 'match_finished', board: fakeBoard, currentMatchPlayers: matchPlayers, currentMatchSize: dynamicSize, turnIndex: 0, actionState: 'rolling' };
-                matchPlayers.forEach(pid => { updates[`players.${pid}.tiles`] = tilesCount[pid]; updates[`players.${pid}.inventory`] = []; });
+                const updates = {
+                    status: 'match_finished', 
+                    board: fakeBoard,
+                    currentMatchPlayers: matchPlayers,
+                    currentMatchSize: dynamicSize,
+                    turnIndex: 0,
+                    actionState: 'rolling'
+                };
+
+                matchPlayers.forEach(pid => {
+                    updates[`players.${pid}.tiles`] = tilesCount[pid];
+                    updates[`players.${pid}.inventory`] = [];
+                });
+
+                // Cambiamo lo stato in match_finished cosicché la Game view carichi la schermata dei risultati e la mappa!
                 await updateDoc(doc(getCollectionRef(), room.id), updates);
             };
 
             return (
-                <div className="min-h-screen bg-slate-950 text-slate-100 flex flex-col p-4 md:p-8">
+                <div className="min-h-[100dvh] bg-slate-950 text-slate-100 flex flex-col p-4 md:p-8">
+                    {/* Header */}
                     <div className="shrink-0 mb-6 text-center">
                         <h1 className="text-4xl font-black text-orange-500 tracking-wider">TABELLONE TORNEO</h1>
                         <p className="text-slate-400">Tutti i match e le fasi della competizione</p>
                     </div>
                     
+                    {/* Control Panel (Current Match) */}
                     <div className="bg-slate-800 p-6 rounded-3xl border border-slate-700 shadow-2xl mb-8 shrink-0">
                         <h2 className="text-xl font-bold mb-4 text-center text-white">
                             <span className="text-orange-400">{phase.name}</span> • Match in evidenza ({currentMatch + 1}/{phase.matches.length})
                         </h2>
                         <div className="flex flex-wrap justify-center gap-4 mb-6">
                             {match.players.map(pid => {
-                                const p = room.players[pid]; 
+                                const p = room.players[pid];
                                 if(!p) return null;
                                 const c = CHARACTERS.find(x => x.id === p.charId);
                                 return (
@@ -905,6 +994,7 @@
                         </div>
                     </div>
 
+                    {/* Full Bracket Visualization */}
                     <div className="flex-1 bg-slate-800 rounded-3xl border border-slate-700 p-6 overflow-x-auto overflow-y-auto">
                         <div className="flex gap-10 min-w-max min-h-full items-stretch">
                             {phases.map((ph, pIdx) => (
@@ -924,6 +1014,7 @@
                                                     ${isPastMatch ? 'border-emerald-600/50 opacity-70' : ''}
                                                     ${isFutureMatch ? 'border-slate-700/50' : ''}
                                                 `}>
+                                                    {/* Trattini di connessione laterali (stile Bracket) */}
                                                     {pIdx > 0 && <div className="absolute top-1/2 -left-5 w-5 border-t-2 border-slate-600 -z-10"></div>}
                                                     {pIdx < phases.length - 1 && <div className="absolute top-1/2 -right-5 w-5 border-t-2 border-slate-600 -z-10"></div>}
 
@@ -988,6 +1079,7 @@
           const isGameEnded = room.status === 'finished' || room.status === 'match_finished';
           const [showResultsModal, setShowResultsModal] = useState(true);
 
+          // AGGIUNTA PER GESTIONE TOUCH (TABLET/SMARTPHONE)
           const [showItemDesc, setShowItemDesc] = useState(null);
           const touchTimer = useRef(null);
           const isLongPress = useRef(false);
@@ -1004,6 +1096,7 @@
             const botPlay = async () => {
               const updates = {};
               
+              // Se il bot ha la stregoneria addosso
               if (activePlayer?.hasStregoneria) {
                   const baseRoll = Math.floor(Math.random() * 6) + 1;
                   const totalRoll = Math.max(1, baseRoll + (activePlayer?.modifier || 0));
@@ -1118,6 +1211,7 @@
                   [`players.${activePlayerId}.inventory`]: currentInv
                 });
 
+                // Velocità calcolata dinamicamente in base alla scelta dell'host
                 const speedMult = room.config.botSpeed || 1;
                 timeout = setTimeout(makeMove, 600 / speedMult);
               };
@@ -1158,7 +1252,7 @@
              if (!extraTurn && nextIdx === 0) {
                  nextRound++;
                  
-                 // Drop casuale (15%)
+                 // Drop casuale (15%) di uno strumento a fine round su una cella vuota
                  if (Math.random() < 0.15) {
                      const emptyTiles = Object.keys(room.board || {}).filter(k => room.board[k] && !room.board[k].owner && !room.board[k].item);
                      if (emptyTiles.length > 0) {
@@ -1374,7 +1468,7 @@
           const topPlayerIds = topPlayers.map(p => p.id);
 
           return (
-            <div className="h-screen flex flex-col bg-slate-900 text-slate-100 overflow-hidden relative">
+            <div className="h-[100dvh] flex flex-col bg-slate-900 text-slate-100 overflow-hidden relative">
               
               {/* SCHERMATA RISULTATI */}
               {isGameEnded && showResultsModal && (
