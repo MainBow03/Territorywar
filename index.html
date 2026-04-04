@@ -36,7 +36,7 @@
         import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
         import { getAnalytics } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-analytics.js";
         import { getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
-        import { getFirestore, doc, setDoc, getDoc, updateDoc, onSnapshot, collection } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+        import { getFirestore, doc, setDoc, getDoc, updateDoc, onSnapshot, collection, arrayUnion } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
 
         const { useState, useEffect, useMemo, useRef } = React;
 
@@ -73,6 +73,7 @@
         const playItemSound = () => { playTone(600, 'square', 0.1); setTimeout(() => playTone(800, 'square', 0.15), 100); };
         const playActionSound = () => { playTone(200, 'sawtooth', 0.2, 0.1); setTimeout(() => playTone(150, 'sawtooth', 0.4, 0.1), 150); };
         const playEventSound = () => { playTone(150, 'triangle', 0.5, 0.2); setTimeout(() => playTone(100, 'triangle', 0.8, 0.2), 300); };
+        const playChatSound = () => { playTone(400, 'sine', 0.1); };
 
         const CHARACTERS = [
           // Disventure Camp
@@ -301,6 +302,102 @@
             });
         };
 
+        // --- COMPONENTE CHAT ---
+        function ChatBox({ room, user }) {
+            const [isOpen, setIsOpen] = useState(false);
+            const [text, setText] = useState('');
+            const [unread, setUnread] = useState(0);
+            const messagesEndRef = useRef(null);
+            
+            const messages = room.messages || [];
+            const prevMsgCount = useRef(messages.length);
+
+            useEffect(() => {
+                const currentCount = messages.length;
+                if (currentCount > prevMsgCount.current) {
+                    const isMyMessage = messages[currentCount - 1]?.uid === user.uid;
+                    if (!isOpen && !isMyMessage) {
+                        setUnread(prev => prev + (currentCount - prevMsgCount.current));
+                        playChatSound();
+                    } else if (isOpen && !isMyMessage) {
+                        playChatSound();
+                    }
+                }
+                prevMsgCount.current = currentCount;
+                
+                if (isOpen) {
+                    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+                }
+            }, [messages, isOpen, user.uid]);
+
+            const toggleChat = () => {
+                setIsOpen(!isOpen);
+                if (!isOpen) setUnread(0);
+            };
+
+            const sendMsg = async (e) => {
+                e.preventDefault();
+                if (!text.trim()) return;
+                
+                const me = room.players[user.uid];
+                const senderName = me ? me.n : (localStorage.getItem('tw_player_name') || "Spettatore");
+                const senderColor = me ? me.color : "#94a3b8";
+
+                const newMsg = {
+                    id: Date.now().toString(36) + Math.random().toString(36).substr(2, 5),
+                    uid: user.uid,
+                    n: senderName,
+                    color: senderColor,
+                    text: text.trim(),
+                    t: Date.now()
+                };
+
+                setText('');
+                await updateDoc(doc(getCollectionRef(), room.id), {
+                    messages: arrayUnion(newMsg)
+                });
+            };
+
+            return (
+                <div className="fixed bottom-4 left-4 z-[100] flex flex-col items-start pointer-events-none">
+                    {isOpen && (
+                        <div className="bg-slate-800 border border-slate-600 rounded-xl shadow-2xl w-72 sm:w-80 h-[50vh] max-h-96 flex flex-col mb-2 overflow-hidden pointer-events-auto">
+                            <div className="bg-slate-700 px-4 py-3 font-bold flex justify-between items-center border-b border-slate-600 shrink-0">
+                                <span>💬 Chat Globale</span>
+                                <button onClick={toggleChat} className="text-slate-400 hover:text-white text-xl leading-none">&times;</button>
+                            </div>
+                            <div className="flex-1 p-3 overflow-y-auto space-y-3 custom-scrollbar text-sm bg-slate-800/80">
+                                {messages.length === 0 && <div className="text-center text-slate-500 italic mt-10">Nessun messaggio.</div>}
+                                {messages.map(m => (
+                                    <div key={m.id} className={`flex flex-col ${m.uid === user.uid ? 'items-end' : 'items-start'}`}>
+                                        <span className="text-[10px] font-bold mb-0.5" style={{color: m.color}}>{m.n}</span>
+                                        <div className={`px-3 py-2 rounded-xl max-w-[85%] break-words shadow-sm ${m.uid === user.uid ? 'bg-indigo-600 text-white rounded-br-none' : 'bg-slate-700 text-slate-200 rounded-bl-none'}`}>
+                                            {m.text}
+                                        </div>
+                                    </div>
+                                ))}
+                                <div ref={messagesEndRef} />
+                            </div>
+                            <form onSubmit={sendMsg} className="p-2 bg-slate-700 border-t border-slate-600 flex gap-2 shrink-0">
+                                <input type="text" value={text} onChange={e => setText(e.target.value)} placeholder="Scrivi..." className="flex-1 bg-slate-900 text-white px-3 py-2 rounded-lg outline-none text-sm border border-slate-600 focus:border-indigo-500" maxLength={120} />
+                                <button type="submit" className="bg-indigo-600 hover:bg-indigo-500 px-4 rounded-lg font-bold text-sm transition-colors">Invia</button>
+                            </form>
+                        </div>
+                    )}
+                    {!isOpen && (
+                        <button onClick={toggleChat} className="bg-indigo-600 hover:bg-indigo-500 text-white p-4 rounded-full shadow-[0_0_15px_rgba(0,0,0,0.5)] relative flex items-center justify-center transition-transform hover:scale-110 border-2 border-slate-800 pointer-events-auto">
+                            <span className="text-2xl leading-none">💬</span>
+                            {unread > 0 && (
+                                <span className="absolute -top-1 -right-1 bg-red-500 text-white text-[11px] font-black w-6 h-6 flex items-center justify-center rounded-full border-2 border-slate-800 animate-bounce">
+                                    {unread > 9 ? '9+' : unread}
+                                </span>
+                            )}
+                        </button>
+                    )}
+                </div>
+            );
+        }
+
         // --- COMPONENTE PRINCIPALE ---
         function App() {
           const [user, setUser] = useState(null);
@@ -356,7 +453,7 @@
               status: 'lobby', hostId: user.uid,
               config: { mode: 'standard', players: 4, tournamentSize: 8, size: 10, shape: 'square', maxRounds: 20, invasionMode: false, botSpeed: 1, eventsEnabled: false },
               players: { [user.uid]: { id: user.uid, n: playerName.trim(), isBot: false, color: hostColor, charId: null, ready: false, hasStregoneria: false } },
-              playerOrder: [user.uid], round: 1, turnIndex: 0, currentEvent: null
+              playerOrder: [user.uid], round: 1, turnIndex: 0, currentEvent: null, messages: []
             };
             await setDoc(doc(getCollectionRef(), newRoomId), roomData);
             setRoomId(newRoomId);
@@ -503,7 +600,10 @@
                 const board = generateBoard(room.config.size, room.config.shape);
                 const spawns = getSpawnPoints(room.config.size, room.playerOrder.length, board);
                 
-                const updates = { status: 'playing', turnIndex: 0, round: 1, actionState: 'rolling', movesLeft: 0, currentRoll: 0, currentEvent: null };
+                const updates = { 
+                    status: 'playing', turnIndex: 0, round: 1, actionState: 'rolling', movesLeft: 0, currentRoll: 0, currentEvent: null,
+                    lastAction: { msg: `🎮 La partita inizia! Tocca a ${room.players[room.playerOrder[0]]?.n}!`, id: Date.now() }
+                };
                 room.playerOrder.forEach((pid, idx) => {
                   updates[`players.${pid}.tiles`] = 1; updates[`players.${pid}.inventory`] = [];
                   updates[`players.${pid}.modifier`] = 0; updates[`players.${pid}.isTrapped`] = false; updates[`players.${pid}.hasStregoneria`] = false;
@@ -654,6 +754,8 @@
                   })}
                 </div>
               </div>
+              
+              <ChatBox room={room} user={user} />
             </div>
           );
         }
@@ -739,7 +841,8 @@
                 
                 const updates = { 
                     status: 'playing_match', turnIndex: 0, round: 1, actionState: 'rolling', movesLeft: 0, currentRoll: 0,
-                    currentMatchPlayers: matchPlayers, currentMatchSize: dynamicSize, currentEvent: null 
+                    currentMatchPlayers: matchPlayers, currentMatchSize: dynamicSize, currentEvent: null,
+                    lastAction: { msg: `🎮 Il match inizia! Tocca a ${room.players[matchPlayers[0]]?.n}!`, id: Date.now() }
                 };
                 
                 matchPlayers.forEach((pid, idx) => {
@@ -871,8 +974,16 @@
           const [showItemDesc, setShowItemDesc] = useState(null);
           const touchTimer = useRef(null);
           const isLongPress = useRef(false);
+          const lastActionRef = useRef(null);
 
           useEffect(() => { if (isGameEnded) setShowResultsModal(true); }, [isGameEnded]);
+
+          useEffect(() => {
+              if (room?.lastAction && room.lastAction.id !== lastActionRef.current) {
+                  lastActionRef.current = room.lastAction.id;
+                  showNotif(room.lastAction.msg);
+              }
+          }, [room?.lastAction]);
 
           // --- BOT LOGIC ---
           useEffect(() => {
@@ -902,12 +1013,10 @@
                   return;
               }
 
-              // Evento Tempesta Caotica: Il bot gioca dai territori del prossimo giocatore
               const sourcePlayerId = room.currentEvent === 'tempesta' ? matchPlayerOrder[(matchPlayerOrder.indexOf(activePlayerId) + 1) % matchPlayerOrder.length] : activePlayerId;
               const playable = getPlayableTiles(sourcePlayerId, room.board || {}, boardSize, room.config.invasionMode, activePlayerId);
               
               if (playable.length === 0) {
-                showNotif(`${activePlayer?.n} è chiuso e salta il turno!`);
                 await nextTurn();
                 return;
               }
@@ -915,9 +1024,11 @@
               const baseRoll = Math.floor(Math.random() * 6) + 1;
               const mod = activePlayer?.modifier || 0;
               const totalRoll = Math.max(1, baseRoll + mod);
-              showNotif(`${activePlayer?.n} lancia un ${totalRoll}`);
               
-              await updateDoc(boardRef, { actionState: 'moving', currentRoll: totalRoll, movesLeft: totalRoll, [`players.${activePlayerId}.modifier`]: 0 });
+              await updateDoc(boardRef, { 
+                  actionState: 'moving', currentRoll: totalRoll, movesLeft: totalRoll, [`players.${activePlayerId}.modifier`]: 0,
+                  lastAction: { msg: `🎲 ${activePlayer?.n} lancia un ${totalRoll}!`, id: Date.now() }
+              });
 
               let currentMoves = totalRoll;
               let currentBoard = { ...(room.board || {}) };
@@ -925,7 +1036,6 @@
 
               const makeMove = async () => {
                 if (currentMoves <= 0) {
-                  // I bot non usano oggetti durante la carestia
                   if (currentInv.length > 0 && room.currentEvent !== 'carestia') {
                     const item = currentInv[0];
                     if (item === 'turbo') updates[`players.${activePlayerId}.modifier`] = 2;
@@ -974,7 +1084,6 @@
                   return;
                 }
 
-                // Riapplica la Tempesta Caotica per ricalcolare ogni singolo passo!
                 const dynamicSource = room.currentEvent === 'tempesta' ? matchPlayerOrder[(matchPlayerOrder.indexOf(activePlayerId) + 1) % matchPlayerOrder.length] : activePlayerId;
                 const validMoves = getPlayableTiles(dynamicSource, currentBoard, boardSize, room.config.invasionMode, activePlayerId);
                 if (validMoves.length === 0) { await nextTurn(); return; }
@@ -991,7 +1100,6 @@
                 
                 if (pickedItem && currentInv.length < 2) currentInv.push(pickedItem);
 
-                // Era Glaciale Bonus
                 if (room.currentEvent === 'glaciale') {
                     const [cx, cy] = bestMove.split(',').map(Number);
                     const adjs = [`${cx+1},${cy}`, `${cx-1},${cy}`, `${cx},${cy+1}`, `${cx},${cy-1}`];
@@ -1052,9 +1160,8 @@
              if (!extraTurn && nextIdx === 0) {
                  nextRound++;
                  let currentBoard = { ...(room.board || {}) };
-                 updates.currentEvent = null; // Resetta evento precedente
+                 updates.currentEvent = null;
                  
-                 // Sistema Eventi Meteo (Gestito dall'Host)
                  if (isHost && room.config.eventsEnabled && nextRound > 1 && Math.random() < 0.30) {
                      const ev = EVENT_TYPES[Math.floor(Math.random() * EVENT_TYPES.length)];
                      updates.globalAction = { msg: `🚨 METEO: ${ev.n}! ${ev.desc}`, id: Date.now() };
@@ -1091,7 +1198,6 @@
                          meteors.forEach(k => { currentBoard[k] = { ...currentBoard[k], owner: null, item: null, isWall: true }; updates[`board.${k}`] = currentBoard[k]; });
                      }
                  }
-                 // Drop casuale oggetti (8%) se non c'è una pioggia di meteoriti che occupa le caselle
                  else if (isHost && Math.random() < 0.08) {
                      const emptyTiles = Object.keys(room.board || {}).filter(k => room.board[k] && !room.board[k].owner && !room.board[k].item && !room.board[k].isWall);
                      if (emptyTiles.length > 0) {
@@ -1112,6 +1218,7 @@
              }
 
              updates.turnIndex = nextIdx; updates.round = nextRound; updates.actionState = 'rolling'; updates.movesLeft = 0; updates.currentRoll = 0;
+             updates.lastAction = { msg: `👉 Tocca a ${room.players[matchPlayerOrder[nextIdx]]?.n}!`, id: Date.now() };
              await updateDoc(boardRef, updates);
           };
 
@@ -1122,8 +1229,6 @@
             const base = Math.floor(Math.random() * 6) + 1;
             const mod = activePlayer?.modifier || 0;
             const total = Math.max(1, base + mod);
-
-            showNotif(`${activePlayer?.n} lancia un ${total}`);
 
             if (activePlayer?.hasStregoneria) {
                 let currentBoard = { ...(room.board || {}) };
@@ -1150,13 +1255,15 @@
             const sourceId = room.currentEvent === 'tempesta' ? matchPlayerOrder[(matchPlayerOrder.indexOf(user.uid) + 1) % matchPlayerOrder.length] : user.uid;
             const playable = getPlayableTiles(sourceId, room.board || {}, boardSize, room.config.invasionMode, user.uid);
             if (playable.length === 0) {
-                showNotif("Sei chiuso! Salti il turno.");
                 await updateDoc(boardRef, { [`players.${user.uid}.isTrapped`]: true });
                 nextTurn();
                 return;
             }
 
-            await updateDoc(boardRef, { actionState: 'moving', currentRoll: total, movesLeft: total, [`players.${user.uid}.modifier`]: 0 });
+            await updateDoc(boardRef, { 
+                actionState: 'moving', currentRoll: total, movesLeft: total, [`players.${user.uid}.modifier`]: 0,
+                lastAction: { msg: `🎲 ${activePlayer?.n} ha lanciato un ${total}!`, id: Date.now() }
+            });
           };
 
           const clickTile = async (key) => {
@@ -1180,7 +1287,6 @@
             const newBoard = {...room.board, [key]: { ...room.board[key], owner: user.uid, item: null }};
             const updates = { [`board.${key}`]: newBoard[key], movesLeft: room.movesLeft - 1, [`players.${user.uid}.inventory`]: newInv };
 
-            // Era Glaciale Bonus
             if (room.currentEvent === 'glaciale') {
                 const [cx, cy] = key.split(',').map(Number);
                 const adjs = [`${cx+1},${cy}`, `${cx-1},${cy}`, `${cx},${cy+1}`, `${cx},${cy-1}`];
@@ -1292,7 +1398,6 @@
           return (
             <div className="h-[100dvh] flex flex-col bg-slate-900 text-slate-100 overflow-hidden relative">
               
-              {/* SCHERMATA RISULTATI */}
               {isGameEnded && showResultsModal && (
                   <div className="absolute inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-md">
                       <div className="bg-slate-800 p-6 md:p-10 rounded-3xl border border-slate-600 shadow-2xl max-w-4xl w-full max-h-full overflow-y-auto flex flex-col items-center">
@@ -1543,6 +1648,7 @@
                       )}
                   </div>
               </div>
+              <ChatBox room={room} user={user} />
             </div>
           );
         }
