@@ -60,15 +60,22 @@
 
         // --- SISTEMA AUDIO (Web Audio API) ---
         let audioCtx = null;
-        const initAudio = () => { if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)(); if (audioCtx.state === 'suspended') audioCtx.resume(); };
+        const initAudio = () => { 
+            try {
+                if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)(); 
+                if (audioCtx.state === 'suspended') audioCtx.resume(); 
+            } catch (e) { console.warn("Audio Context bloccato dal browser", e); }
+        };
         const playTone = (freq, type, duration, vol=0.05) => {
             initAudio();
             if(!audioCtx) return;
-            const osc = audioCtx.createOscillator(); const gain = audioCtx.createGain();
-            osc.type = type; osc.frequency.value = freq;
-            osc.connect(gain); gain.connect(audioCtx.destination);
-            osc.start(); gain.gain.exponentialRampToValueAtTime(0.00001, audioCtx.currentTime + duration);
-            setTimeout(() => osc.stop(), duration * 1000);
+            try {
+                const osc = audioCtx.createOscillator(); const gain = audioCtx.createGain();
+                osc.type = type; osc.frequency.value = freq;
+                osc.connect(gain); gain.connect(audioCtx.destination);
+                osc.start(); gain.gain.exponentialRampToValueAtTime(0.00001, audioCtx.currentTime + duration);
+                setTimeout(() => osc.stop(), duration * 1000);
+            } catch (e) {}
         };
         const playMoveSound = () => playTone(300, 'sine', 0.1);
         const playItemSound = () => { playTone(600, 'square', 0.1); setTimeout(() => playTone(800, 'square', 0.15), 100); };
@@ -567,7 +574,7 @@
 
           const startGame = async () => {
             if (!isHost) return;
-            const allReady = Object.values(room.players).every(p => p.ready);
+            const allReady = Object.values(room.players).every(p => p?.ready);
             if (!allReady) return showNotif("Tutti devono essere pronti!");
 
             initAudio(); // Inizializza audio interazione host
@@ -611,7 +618,7 @@
                 const board = generateBoard(room.config.size, room.config.shape);
                 const spawns = getSpawnPoints(room.config.size, room.playerOrder.length, board);
                 
-                const updates = { status: 'playing', board: board, turnIndex: 0, round: 1, actionState: 'rolling', movesLeft: 0, currentRoll: 0 };
+                const updates = { status: 'playing', turnIndex: 0, round: 1, actionState: 'rolling', movesLeft: 0, currentRoll: 0 };
                 room.playerOrder.forEach((pid, idx) => {
                   updates[`players.${pid}.tiles`] = 1;
                   updates[`players.${pid}.inventory`] = [];
@@ -619,9 +626,10 @@
                   updates[`players.${pid}.isTrapped`] = false;
                   updates[`players.${pid}.hasStregoneria`] = false;
                   if (spawns[idx]) {
-                    updates[`board.${spawns[idx]}`] = { owner: pid, item: null };
+                      board[`${spawns[idx]}`] = { owner: pid, item: null };
                   }
                 });
+                updates.board = board; // Aggiorna il blocco tutto intero per sicurezza su Firebase
                 await updateDoc(doc(getCollectionRef(), room.id), updates);
             }
           };
@@ -716,6 +724,7 @@
                   <div className="space-y-3">
                     {room.playerOrder.map(pid => {
                       const p = room.players[pid];
+                      if(!p) return null;
                       const c = CHARACTERS.find(x => x.id === p.charId);
                       return (
                         <div key={pid} className="flex items-center p-3 rounded-xl bg-slate-700/50 border-l-4 shrink-0" style={{borderColor: p.color}}>
@@ -752,7 +761,7 @@
                     {me?.ready ? 'Annulla Pronto' : 'SONO PRONTO'}
                   </button>
                   {isHost && (
-                    <button onClick={startGame} className={`w-full py-4 rounded-xl font-black text-lg shadow-lg ${Object.values(room.players).every(p => p.ready) ? 'bg-indigo-600 hover:bg-indigo-500 text-white' : 'bg-slate-700 text-slate-500 cursor-not-allowed'}`}>
+                    <button onClick={startGame} className={`w-full py-4 rounded-xl font-black text-lg shadow-lg ${Object.values(room.players).every(p => p?.ready) ? 'bg-indigo-600 hover:bg-indigo-500 text-white' : 'bg-slate-700 text-slate-500 cursor-not-allowed'}`}>
                       {room.config.mode === 'tournament' ? 'AVVIA TORNEO' : 'INIZIA PARTITA'}
                     </button>
                   )}
@@ -774,7 +783,7 @@
 
                 <div className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-5 lg:grid-cols-6 gap-4 overflow-y-auto pr-2 pb-10 flex-1 content-start custom-scrollbar">
                   {displayedChars.map(c => {
-                     const takenByPlayer = Object.values(room.players).find(p => p.charId === c.id);
+                     const takenByPlayer = Object.values(room.players).find(p => p?.charId === c.id);
                      const isTaken = !!takenByPlayer;
                      const isMe = me?.charId === c.id;
                      return (
@@ -808,6 +817,9 @@
                 const winnerId = finalPhase.matches[0].winners[0];
                 const winner = room.players[winnerId];
 
+                // Se manca il vincitore, attendiamo
+                if (!winner) return <div className="min-h-screen bg-slate-950 text-white flex items-center justify-center">Calcolo in corso...</div>;
+
                 // Crea Recap di chi è stato eliminato dove
                 const recap = [];
                 for(let i = phases.length - 1; i >= 0; i--) {
@@ -815,7 +827,7 @@
                     const eliminatedHere = [];
                     phase.matches.forEach(m => {
                         m.players.forEach(p => {
-                            if (!m.winners.includes(p)) eliminatedHere.push(room.players[p]);
+                            if (!m.winners.includes(p) && room.players[p]) eliminatedHere.push(room.players[p]);
                         });
                     });
                     if (eliminatedHere.length > 0) {
@@ -843,12 +855,15 @@
                                       <div key={i}>
                                           <h4 className={`text-sm font-black uppercase tracking-widest border-b border-slate-700 pb-2 mb-3 ${r.color}`}>{r.title}</h4>
                                           <div className="flex flex-wrap gap-4 justify-center">
-                                              {r.players.map(p => (
-                                                  <div key={p.id} className="flex flex-col items-center opacity-80">
-                                                      <img src={CHARACTERS.find(c=>c.id===p.charId)?.i} className="w-12 h-12 rounded-full border-2 object-cover grayscale" style={{borderColor: p.color}} />
-                                                      <span className="text-xs font-bold mt-1 text-slate-400 truncate w-16 text-center">{p.n}</span>
-                                                  </div>
-                                              ))}
+                                              {r.players.map(p => {
+                                                  if(!p) return null;
+                                                  return (
+                                                      <div key={p.id} className="flex flex-col items-center opacity-80">
+                                                          <img src={CHARACTERS.find(c=>c.id===p.charId)?.i} className="w-12 h-12 rounded-full border-2 object-cover grayscale" style={{borderColor: p.color}} />
+                                                          <span className="text-xs font-bold mt-1 text-slate-400 truncate w-16 text-center">{p.n}</span>
+                                                      </div>
+                                                  )
+                                              })}
                                           </div>
                                       </div>
                                   ))}
@@ -867,7 +882,12 @@
 
             const phase = phases[currentPhase];
             const match = phase.matches[currentMatch];
-            const isAllBots = match.players.every(pid => room.players[pid].isBot);
+            
+            // Safe checks per il calcolo se sono tutti bot
+            let isAllBots = true;
+            match.players.forEach(pid => {
+                if (room.players[pid] && !room.players[pid].isBot) isAllBots = false;
+            });
             const isUserPlaying = match.players.includes(user.uid);
 
             const startMatch = async () => {
@@ -879,20 +899,26 @@
                 const spawns = getSpawnPoints(dynamicSize, matchPlayers.length, board);
                 
                 const updates = { 
-                    status: 'playing_match', board: board, turnIndex: 0, round: 1, actionState: 'rolling', movesLeft: 0, currentRoll: 0,
+                    status: 'playing_match', turnIndex: 0, round: 1, actionState: 'rolling', movesLeft: 0, currentRoll: 0,
                     currentMatchPlayers: matchPlayers, currentMatchSize: dynamicSize 
                 };
+                
                 matchPlayers.forEach((pid, idx) => {
                   updates[`players.${pid}.tiles`] = 1; updates[`players.${pid}.inventory`] = [];
                   updates[`players.${pid}.modifier`] = 0; updates[`players.${pid}.isTrapped`] = false;
                   updates[`players.${pid}.hasStregoneria`] = false;
-                  if (spawns[idx]) updates[`board.${spawns[idx]}`] = { owner: pid, item: null };
+                  if (spawns[idx]) {
+                      board[`${spawns[idx]}`] = { owner: pid, item: null };
+                  }
                 });
+                updates.board = board; // Aggiorniamo l'oggetto Board completo per non dare errori di cache
+                
                 await updateDoc(doc(getCollectionRef(), room.id), updates);
             };
 
             const simulateMatch = async () => {
                 if (!isHost) return;
+                
                 const matchPlayers = match.players;
                 const dynamicSize = matchPlayers.length >= 8 ? 14 : 10;
                 let fakeBoard = generateBoard(dynamicSize, room.config.shape);
@@ -905,6 +931,7 @@
 
                 const updates = { status: 'match_finished', board: fakeBoard, currentMatchPlayers: matchPlayers, currentMatchSize: dynamicSize, turnIndex: 0, actionState: 'rolling' };
                 matchPlayers.forEach(pid => { updates[`players.${pid}.tiles`] = tilesCount[pid]; updates[`players.${pid}.inventory`] = []; });
+                
                 await updateDoc(doc(getCollectionRef(), room.id), updates);
             };
 
@@ -921,7 +948,9 @@
                         </h2>
                         <div className="flex flex-wrap justify-center gap-4 mb-6">
                             {match.players.map(pid => {
-                                const p = room.players[pid]; const c = CHARACTERS.find(x => x.id === p.charId);
+                                const p = room.players[pid]; 
+                                if(!p) return null;
+                                const c = CHARACTERS.find(x => x.id === p.charId);
                                 return (
                                     <div key={pid} className="flex flex-col items-center bg-slate-700 p-3 rounded-xl shadow border-b-4 w-32" style={{borderColor: p.color}}>
                                         <img src={c?.i} className="w-14 h-14 rounded-full object-cover mb-2 border-2" style={{borderColor: p.color}} />
@@ -979,7 +1008,7 @@
                                                         {Array.from({length: ph.matchSize}).map((_, slotIdx) => {
                                                             const pid = m.players[slotIdx];
                                                             const player = pid ? room.players[pid] : null;
-                                                            const char = player ? CHARACTERS.find(c => c.id === player.charId) : null;
+                                                            const char = player ? CHARACTERS.find(c => c.id === player?.charId) : null;
                                                             const isWinner = m.winners?.includes(pid);
                                                             const isEliminated = m.completed && !isWinner;
                                                             
@@ -990,8 +1019,8 @@
                                                                 `}>
                                                                     {player ? (
                                                                         <>
-                                                                            <img src={char?.i} className="w-6 h-6 rounded-full object-cover shrink-0 border" style={{borderColor: player.color}} alt={player.n} />
-                                                                            <span className="text-sm font-bold truncate" style={{color: isEliminated ? '#94a3b8' : player.color}}>{player.n}</span>
+                                                                            <img src={char?.i} className="w-6 h-6 rounded-full object-cover shrink-0 border" style={{borderColor: player?.color}} alt={player?.n} />
+                                                                            <span className="text-sm font-bold truncate" style={{color: isEliminated ? '#94a3b8' : player?.color}}>{player?.n}</span>
                                                                         </>
                                                                     ) : (
                                                                         <span className="text-sm text-slate-600 italic px-8">TBD</span>
@@ -1015,11 +1044,14 @@
         // --- GIOCO PRINCIPALE ---
         function Game({ room, user, showNotif }) {
           const isHost = room.hostId === user.uid;
-          const matchPlayerOrder = room.status.includes('match') ? room.currentMatchPlayers : room.playerOrder;
+          
+          // Sicurezza anti-crash: garantiamo che array e variabili abbiano sempre valori di fallback.
+          const matchPlayerOrder = (room.status.includes('match') ? room.currentMatchPlayers : room.playerOrder) || [];
           const boardSize = room.status.includes('match') ? (room.currentMatchSize || room.config.size) : room.config.size;
           
           const activePlayerId = matchPlayerOrder[room.turnIndex];
-          const activePlayer = room.players[activePlayerId];
+          const activePlayer = activePlayerId ? room.players[activePlayerId] : null;
+          
           const isPlayingThisMatch = matchPlayerOrder.includes(user.uid);
           const me = isPlayingThisMatch ? room.players[user.uid] : null;
           const isMyTurn = isPlayingThisMatch && activePlayerId === user.uid;
@@ -1073,7 +1105,7 @@
                   return;
               }
 
-              const playable = getPlayableTiles(activePlayerId, room.board, boardSize, room.config.invasionMode);
+              const playable = getPlayableTiles(activePlayerId, room.board || {}, boardSize, room.config.invasionMode);
               
               if (playable.length === 0) {
                 showNotif(`${activePlayer.n} è chiuso e salta il turno!`);
@@ -1089,7 +1121,7 @@
               await updateDoc(boardRef, { actionState: 'moving', currentRoll: totalRoll, movesLeft: totalRoll, [`players.${activePlayerId}.modifier`]: 0 });
 
               let currentMoves = totalRoll;
-              let currentBoard = { ...room.board };
+              let currentBoard = { ...(room.board || {}) };
               let currentInv = [...(activePlayer.inventory || [])];
 
               const makeMove = async () => {
@@ -1109,7 +1141,7 @@
                     }
 
                     if (item === 'curse' || item === 'terremoto' || item === 'stregoneria') {
-                        const enemies = matchPlayerOrder.filter(id => id !== activePlayerId && !room.players[id].isTrapped);
+                        const enemies = matchPlayerOrder.filter(id => id !== activePlayerId && room.players[id] && !room.players[id].isTrapped);
                         if (enemies.length > 0) {
                             const target = enemies[Math.floor(Math.random() * enemies.length)];
                             if(item === 'curse') {
@@ -1207,7 +1239,7 @@
                  
                  // Drop casuale (15%) di uno strumento a fine round su una cella vuota
                  if (Math.random() < 0.15) {
-                     const emptyTiles = Object.keys(room.board).filter(k => room.board[k] && !room.board[k].owner && !room.board[k].item);
+                     const emptyTiles = Object.keys(room.board || {}).filter(k => room.board[k] && !room.board[k].owner && !room.board[k].item);
                      if (emptyTiles.length > 0) {
                          const randomTile = emptyTiles[Math.floor(Math.random() * emptyTiles.length)];
                          const randomItem = ITEMS[Math.floor(Math.random() * ITEMS.length)].id;
@@ -1217,8 +1249,8 @@
                  }
              }
 
-             const totalTiles = Object.keys(room.board).length;
-             const ownedTiles = Object.values(room.board).filter(v => v?.owner).length;
+             const totalTiles = Object.keys(room.board || {}).length;
+             const ownedTiles = Object.values(room.board || {}).filter(v => v?.owner).length;
              
              if (nextRound > room.config.maxRounds || ownedTiles >= totalTiles) {
                  await updateDoc(boardRef, { status: room.status.includes('match') ? 'match_finished' : 'finished' });
@@ -1239,12 +1271,12 @@
             if (!isMyTurn || room.actionState !== 'rolling' || isGameEnded) return;
             
             const base = Math.floor(Math.random() * 6) + 1;
-            const mod = activePlayer.modifier || 0;
+            const mod = activePlayer?.modifier || 0;
             const total = Math.max(1, base + mod);
 
-            showNotif(`${activePlayer.n} lancia un ${total}`);
+            showNotif(`${activePlayer?.n} lancia un ${total}`);
 
-            if (activePlayer.hasStregoneria) {
+            if (activePlayer?.hasStregoneria) {
                 let currentBoard = { ...room.board };
                 const myTiles = Object.keys(currentBoard).filter(k => currentBoard[k]?.owner === user.uid);
                 const toDestroy = myTiles.sort(() => 0.5 - Math.random()).slice(0, total);
@@ -1258,7 +1290,7 @@
                 updates[`players.${user.uid}.tiles`] = Math.max(0, myTiles.length - toDestroy.length);
                 updates[`players.${user.uid}.hasStregoneria`] = false;
                 updates[`players.${user.uid}.modifier`] = 0;
-                updates.globalAction = { msg: `🔮 La Stregoneria distrugge ${toDestroy.length} caselle di ${activePlayer.n}!`, id: Date.now() };
+                updates.globalAction = { msg: `🔮 La Stregoneria distrugge ${toDestroy.length} caselle di ${activePlayer?.n}!`, id: Date.now() };
 
                 await updateDoc(boardRef, updates);
                 showNotif(`La stregoneria ti ha tolto ${toDestroy.length} caselle!`);
@@ -1266,7 +1298,7 @@
                 return;
             }
 
-            const playable = getPlayableTiles(user.uid, room.board, boardSize, room.config.invasionMode);
+            const playable = getPlayableTiles(user.uid, room.board || {}, boardSize, room.config.invasionMode);
             if (playable.length === 0) {
                 showNotif("Sei chiuso! Salti il turno.");
                 await updateDoc(boardRef, { [`players.${user.uid}.isTrapped`]: true });
@@ -1280,11 +1312,11 @@
           const clickTile = async (key) => {
             if (!isMyTurn || room.actionState !== 'moving' || room.movesLeft <= 0 || isGameEnded) return;
             
-            const playable = getPlayableTiles(user.uid, room.board, boardSize, room.config.invasionMode);
+            const playable = getPlayableTiles(user.uid, room.board || {}, boardSize, room.config.invasionMode);
             if (!playable.includes(key)) return;
 
             const cell = room.board[key];
-            let newInv = [...(activePlayer.inventory || [])];
+            let newInv = [...(activePlayer?.inventory || [])];
             
             if (cell.item && newInv.length < 2) {
                 newInv.push(cell.item);
@@ -1338,7 +1370,7 @@
                       updates[`board.${k}`] = currentBoard[k];
                   });
                   updates[`players.${user.uid}.tiles`] = Object.values(currentBoard).filter(v => v?.owner === user.uid).length;
-                  updates.globalAction = { msg: `🏳️ ${me.n} usa Conquista e ottiene territori liberi!`, id: Date.now() };
+                  updates.globalAction = { msg: `🏳️ ${me?.n} usa Conquista e ottiene territori liberi!`, id: Date.now() };
                   
                   await updateDoc(boardRef, updates);
                   consumeItem(slotIdx);
@@ -1357,12 +1389,13 @@
           const applyTargetItem = async (targetId) => {
               if (targetId === user.uid) return showNotif("Non puoi selezionare te stesso!");
               const updates = {};
+              const targetName = room.players[targetId]?.n;
               
               if (targetAction === 'curse') {
                   updates[`players.${targetId}.modifier`] = -2;
-                  updates.globalAction = { msg: `💀 ${me.n} usa Maledizione su ${room.players[targetId].n}!`, id: Date.now() };
+                  updates.globalAction = { msg: `💀 ${me?.n} usa Maledizione su ${targetName}!`, id: Date.now() };
                   consumeItem(usingItemSlot);
-                  showNotif(`Maledizione lanciata su ${room.players[targetId].n}!`);
+                  showNotif(`Maledizione lanciata su ${targetName}!`);
               } 
               else if (targetAction === 'terremoto') {
                   let currentBoard = { ...room.board };
@@ -1376,16 +1409,16 @@
                       updates[`board.${k}`] = currentBoard[k];
                   });
                   updates[`players.${targetId}.tiles`] = Object.values(currentBoard).filter(v => v?.owner === targetId).length;
-                  updates.globalAction = { msg: `🌋 ${me.n} scatena un Terremoto sui territori di ${room.players[targetId].n}!`, id: Date.now() };
+                  updates.globalAction = { msg: `🌋 ${me?.n} scatena un Terremoto sui territori di ${targetName}!`, id: Date.now() };
                   
                   consumeItem(usingItemSlot);
-                  showNotif(`Hai distrutto le caselle di ${room.players[targetId].n}!`);
+                  showNotif(`Hai distrutto le caselle di ${targetName}!`);
               }
               else if (targetAction === 'stregoneria') {
                   updates[`players.${targetId}.hasStregoneria`] = true;
-                  updates.globalAction = { msg: `🔮 ${me.n} lancia Stregoneria su ${room.players[targetId].n}!`, id: Date.now() };
+                  updates.globalAction = { msg: `🔮 ${me?.n} lancia Stregoneria su ${targetName}!`, id: Date.now() };
                   consumeItem(usingItemSlot);
-                  showNotif(`Stregoneria lanciata su ${room.players[targetId].n}!`);
+                  showNotif(`Stregoneria lanciata su ${targetName}!`);
               }
               
               await updateDoc(boardRef, updates);
@@ -1393,20 +1426,20 @@
           };
 
           const consumeItem = async (slotIdx) => {
-              const newInv = [...activePlayer.inventory];
+              const newInv = [...(activePlayer?.inventory || [])];
               newInv.splice(slotIdx, 1);
               await updateDoc(boardRef, { [`players.${user.uid}.inventory`]: newInv });
           };
 
-          const playableTiles = useMemo(() => isMyTurn && room.actionState === 'moving' && !isGameEnded ? getPlayableTiles(user.uid, room.board, boardSize, room.config.invasionMode) : [], [isMyTurn, room.actionState, room.board, boardSize, user.uid, isGameEnded, room.config.invasionMode]);
-          const leaderboard = matchPlayerOrder.map(id => room.players[id]).sort((a, b) => (b.tiles||0) - (a.tiles||0));
+          const playableTiles = useMemo(() => isMyTurn && room.actionState === 'moving' && !isGameEnded ? getPlayableTiles(user.uid, room.board || {}, boardSize, room.config.invasionMode) : [], [isMyTurn, room.actionState, room.board, boardSize, user.uid, isGameEnded, room.config.invasionMode]);
+          const leaderboard = matchPlayerOrder.map(id => room.players[id]).filter(Boolean).sort((a, b) => (b.tiles||0) - (a.tiles||0));
           const iconSizeClass = boardSize > 14 ? 'text-xs md:text-sm' : (boardSize > 10 ? 'text-base md:text-lg' : 'text-xl md:text-3xl');
 
           const isTournament = room.status === 'match_finished';
           let winnersCount = 1;
           if (isTournament) {
               winnersCount = matchPlayerOrder.length >= 8 ? 4 : 2;
-              if (room.tournament?.currentPhase === room.tournament?.phases.length - 1) winnersCount = 1;
+              if (room.tournament?.currentPhase === room.tournament?.phases?.length - 1) winnersCount = 1;
           }
           const topPlayers = leaderboard.slice(0, winnersCount);
           const eliminatedPlayers = leaderboard.slice(winnersCount);
@@ -1428,16 +1461,19 @@
                                   <div className="flex-1 bg-emerald-900/20 p-6 rounded-2xl border border-emerald-500/30">
                                       <h3 className="text-xl text-emerald-400 font-black mb-4 text-center tracking-wide">QUALIFICATI</h3>
                                       <div className="grid gap-3">
-                                          {topPlayers.map((p, idx) => (
-                                              <div key={p.id} className="flex items-center gap-4 bg-emerald-900/40 p-3 rounded-xl border border-emerald-500/50 shadow-sm">
-                                                  <div className="font-bold text-emerald-500 w-4">{idx+1}</div>
-                                                  <img src={CHARACTERS.find(c=>c.id===p.charId)?.i} className="w-12 h-12 rounded-full border-2 object-cover shrink-0" style={{borderColor: p.color}} />
-                                                  <div className="flex-1 min-w-0">
-                                                      <div className="font-bold truncate" style={{color: p.color}}>{p.n}</div>
-                                                      <div className="text-xs text-emerald-200/70">{p.tiles} territori</div>
+                                          {topPlayers.map((p, idx) => {
+                                              if(!p) return null;
+                                              return (
+                                                  <div key={p.id} className="flex items-center gap-4 bg-emerald-900/40 p-3 rounded-xl border border-emerald-500/50 shadow-sm">
+                                                      <div className="font-bold text-emerald-500 w-4">{idx+1}</div>
+                                                      <img src={CHARACTERS.find(c=>c.id===p.charId)?.i} className="w-12 h-12 rounded-full border-2 object-cover shrink-0" style={{borderColor: p.color}} />
+                                                      <div className="flex-1 min-w-0">
+                                                          <div className="font-bold truncate" style={{color: p.color}}>{p.n}</div>
+                                                          <div className="text-xs text-emerald-200/70">{p.tiles} territori</div>
+                                                      </div>
                                                   </div>
-                                              </div>
-                                          ))}
+                                              )
+                                          })}
                                       </div>
                                   </div>
                                   
@@ -1445,16 +1481,19 @@
                                       <div className="flex-1 bg-red-900/20 p-6 rounded-2xl border border-red-500/30">
                                           <h3 className="text-xl text-red-400 font-black mb-4 text-center tracking-wide">ELIMINATI</h3>
                                           <div className="grid gap-3 opacity-80">
-                                              {eliminatedPlayers.map((p, idx) => (
-                                                  <div key={p.id} className="flex items-center gap-4 bg-red-900/40 p-3 rounded-xl border border-red-500/30 grayscale">
-                                                      <div className="font-bold text-red-500/50 w-4">{idx+1+winnersCount}</div>
-                                                      <img src={CHARACTERS.find(c=>c.id===p.charId)?.i} className="w-12 h-12 rounded-full border-2 object-cover shrink-0 border-slate-600" />
-                                                      <div className="flex-1 min-w-0">
-                                                          <div className="font-bold truncate text-slate-400">{p.n}</div>
-                                                          <div className="text-xs text-red-200/50">{p.tiles} territori</div>
+                                              {eliminatedPlayers.map((p, idx) => {
+                                                  if(!p) return null;
+                                                  return (
+                                                      <div key={p.id} className="flex items-center gap-4 bg-red-900/40 p-3 rounded-xl border border-red-500/30 grayscale">
+                                                          <div className="font-bold text-red-500/50 w-4">{idx+1+winnersCount}</div>
+                                                          <img src={CHARACTERS.find(c=>c.id===p.charId)?.i} className="w-12 h-12 rounded-full border-2 object-cover shrink-0 border-slate-600" />
+                                                          <div className="flex-1 min-w-0">
+                                                              <div className="font-bold truncate text-slate-400">{p.n}</div>
+                                                              <div className="text-xs text-red-200/50">{p.tiles} territori</div>
+                                                          </div>
                                                       </div>
-                                                  </div>
-                                              ))}
+                                                  )
+                                              })}
                                           </div>
                                       </div>
                                   )}
@@ -1463,17 +1502,20 @@
                               <div className="flex flex-col items-center w-full">
                                   <h2 className="text-3xl font-bold mb-6 text-yellow-400">Classifica Finale</h2>
                                   <div className="w-full max-w-lg bg-slate-900/60 rounded-2xl p-4 md:p-6 grid gap-4 border border-slate-700">
-                                      {leaderboard.map((p, idx) => (
-                                          <div key={p.id} className={`flex items-center gap-4 bg-slate-800 p-3 md:p-4 rounded-xl border-2 transition-all ${idx === 0 ? 'border-yellow-400 shadow-[0_0_20px_rgba(250,204,21,0.4)] scale-105' : 'border-slate-700'}`}>
-                                              <div className={`font-black w-8 text-center ${idx === 0 ? 'text-yellow-400 text-3xl' : 'text-slate-500 text-xl'}`}>{idx+1}°</div>
-                                              <img src={CHARACTERS.find(c=>c.id===p.charId)?.i} className={`w-14 h-14 rounded-full object-cover shrink-0 ${idx === 0 ? 'border-4 border-yellow-400' : 'border-2 border-slate-600'}`} style={idx !== 0 ? {borderColor: p.color} : {}} />
-                                              <div className="flex-1 min-w-0 text-left">
-                                                  <div className="font-bold truncate text-xl" style={{color: p.color}}>{p.n}</div>
-                                                  <div className="text-sm text-slate-400">{p.tiles} territori conquistati</div>
+                                      {leaderboard.map((p, idx) => {
+                                          if(!p) return null;
+                                          return (
+                                              <div key={p.id} className={`flex items-center gap-4 bg-slate-800 p-3 md:p-4 rounded-xl border-2 transition-all ${idx === 0 ? 'border-yellow-400 shadow-[0_0_20px_rgba(250,204,21,0.4)] scale-105' : 'border-slate-700'}`}>
+                                                  <div className={`font-black w-8 text-center ${idx === 0 ? 'text-yellow-400 text-3xl' : 'text-slate-500 text-xl'}`}>{idx+1}°</div>
+                                                  <img src={CHARACTERS.find(c=>c.id===p.charId)?.i} className={`w-14 h-14 rounded-full object-cover shrink-0 ${idx === 0 ? 'border-4 border-yellow-400' : 'border-2 border-slate-600'}`} style={idx !== 0 ? {borderColor: p.color} : {}} />
+                                                  <div className="flex-1 min-w-0 text-left">
+                                                      <div className="font-bold truncate text-xl" style={{color: p.color}}>{p.n}</div>
+                                                      <div className="text-sm text-slate-400">{p.tiles} territori conquistati</div>
+                                                  </div>
+                                                  {idx === 0 && <div className="text-4xl animate-bounce">🏆</div>}
                                               </div>
-                                              {idx === 0 && <div className="text-4xl animate-bounce">🏆</div>}
-                                          </div>
-                                      ))}
+                                          )
+                                      })}
                                   </div>
                               </div>
                           )}
@@ -1509,7 +1551,7 @@
                   </button>
               )}
 
-              <div className="bg-slate-800 p-3 shadow-md flex justify-between items-center z-10 border-b border-slate-700">
+              <div className="bg-slate-800 p-3 shadow-md flex justify-between items-center z-10 border-b border-slate-700 shrink-0">
                   <div className="flex items-center gap-4">
                       <div className="text-xl font-bold bg-slate-700 px-4 py-2 rounded-lg">
                           {isGameEnded ? 'FINE PARTITA' : `Round ${room.round}/${room.config.maxRounds}`}
@@ -1522,6 +1564,7 @@
                   <div className="flex gap-2 overflow-x-auto mx-4 scrollbar-hide">
                       {matchPlayerOrder.map((pid, idx) => {
                           const p = room.players[pid];
+                          if (!p) return null;
                           const c = CHARACTERS.find(x => x.id === p.charId);
                           const isActive = idx === room.turnIndex && !isGameEnded;
                           return (
@@ -1535,8 +1578,8 @@
                   </div>
                   <div className="text-right flex flex-col items-end">
                      <span className="text-sm text-slate-400">{isGameEnded ? 'Vincitore:' : 'Tocca a:'}</span>
-                     <span className="text-xl font-black" style={{color: isGameEnded ? leaderboard[0].color : activePlayer?.color}}>
-                         {isGameEnded ? leaderboard[0].n : `${activePlayer?.n} ${activePlayer?.isBot ? '(BOT)' : ''}`}
+                     <span className="text-xl font-black" style={{color: isGameEnded ? leaderboard[0]?.color : activePlayer?.color}}>
+                         {isGameEnded ? leaderboard[0]?.n : `${activePlayer?.n || ''} ${activePlayer?.isBot ? '(BOT)' : ''}`}
                      </span>
                   </div>
               </div>
@@ -1561,7 +1604,7 @@
                       >
                           {Array.from({length: boardSize * boardSize}).map((_, i) => {
                               const x = i % boardSize; const y = Math.floor(i / boardSize); const key = `${x},${y}`;
-                              const cell = room.board[key];
+                              const cell = room.board?.[key];
 
                               if (!cell) return <div key={key} className="bg-transparent" />;
                               const isPlayable = playableTiles.includes(key);
@@ -1602,6 +1645,7 @@
                       
                       <div className="flex-1 overflow-y-auto p-2 space-y-2">
                           {leaderboard.map((p, idx) => {
+                              if (!p) return null;
                               const c = CHARACTERS.find(x => x.id === p.charId);
                               const isTargetable = targetAction !== null && p.id !== user.uid && !p.isTrapped;
                               const isEliminated = isGameEnded && idx >= winnersCount;
