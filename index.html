@@ -12,27 +12,26 @@
     <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
     <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
     
-    <!-- Babel (Per compilare JSX nel browser) -->
+    <!-- Babel -->
     <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
 
     <style>
-        /* Utility per nascondere le scrollbar ma permettere lo scroll */
         .scrollbar-hide::-webkit-scrollbar { display: none; }
         .scrollbar-hide { -ms-overflow-style: none; scrollbar-width: none; }
-        /* Custom scrollbar elegante per scorrimento orizzontale categorie */
         .custom-scrollbar::-webkit-scrollbar { height: 6px; width: 6px; }
         .custom-scrollbar::-webkit-scrollbar-track { background: transparent; }
         .custom-scrollbar::-webkit-scrollbar-thumb { background: #475569; border-radius: 10px; }
         .custom-scrollbar::-webkit-scrollbar-thumb:hover { background: #64748b; }
-        /* Evita selezione testo e menu contestuale nativo su tablet/mobile */
         .no-select { -webkit-user-select: none; user-select: none; -webkit-touch-callout: none; }
+        /* Animazioni Eventi Meteo */
+        @keyframes pulse-red { 0%, 100% { box-shadow: 0 0 0 0 rgba(239, 68, 68, 0.7); } 50% { box-shadow: 0 0 20px 10px rgba(239, 68, 68, 0); } }
+        .event-active { animation: pulse-red 2s infinite; }
     </style>
 </head>
 <body class="bg-slate-900 text-slate-100 no-select overflow-hidden">
 
     <div id="root"></div>
 
-    <!-- Script del Gioco -->
     <script type="text/babel" data-type="module">
         import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
         import { getAnalytics } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-analytics.js";
@@ -41,7 +40,6 @@
 
         const { useState, useEffect, useMemo, useRef } = React;
 
-        // --- CONFIGURAZIONE FIREBASE ---
         const firebaseConfig = {
           apiKey: "AIzaSyCHWp-S6y_FR0v4n-PQP43RkJVqt6DxdJ4",
           authDomain: "territory-war-4b0ae.firebaseapp.com",
@@ -53,22 +51,16 @@
         };
 
         const app = initializeApp(firebaseConfig);
-        const analytics = typeof window !== 'undefined' ? getAnalytics(app) : null;
         const auth = getAuth(app);
         const db = getFirestore(app);
         const appId = typeof __app_id !== 'undefined' ? __app_id : 'territory-war-app';
 
-        // --- SISTEMA AUDIO (Web Audio API) ---
         let audioCtx = null;
         const initAudio = () => { 
-            try {
-                if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)(); 
-                if (audioCtx.state === 'suspended') audioCtx.resume(); 
-            } catch (e) { console.warn("Audio Context bloccato dal browser", e); }
+            try { if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)(); if (audioCtx.state === 'suspended') audioCtx.resume(); } catch (e) {}
         };
         const playTone = (freq, type, duration, vol=0.05) => {
-            initAudio();
-            if(!audioCtx) return;
+            initAudio(); if(!audioCtx) return;
             try {
                 const osc = audioCtx.createOscillator(); const gain = audioCtx.createGain();
                 osc.type = type; osc.frequency.value = freq;
@@ -80,8 +72,8 @@
         const playMoveSound = () => playTone(300, 'sine', 0.1);
         const playItemSound = () => { playTone(600, 'square', 0.1); setTimeout(() => playTone(800, 'square', 0.15), 100); };
         const playActionSound = () => { playTone(200, 'sawtooth', 0.2, 0.1); setTimeout(() => playTone(150, 'sawtooth', 0.4, 0.1), 150); };
+        const playEventSound = () => { playTone(150, 'triangle', 0.5, 0.2); setTimeout(() => playTone(100, 'triangle', 0.8, 0.2), 300); };
 
-        // --- DATI PERSONAGGI ---
         const CHARACTERS = [
           // Disventure Camp
           { id: 'dc1', cat: 'Disventure Camp', n: 'Tom', i: 'https://i.pinimg.com/736x/db/d4/2a/dbd42a105be5cd57fa6a0ed9a8ab7df8.jpg' },
@@ -194,6 +186,16 @@
           { id: 'stregoneria', n: 'Stregoneria', icon: '🔮', desc: 'Il prossimo lancio del bersaglio gli toglierà caselle e salterà il turno.' }
         ];
 
+        const EVENT_TYPES = [
+            { id: 'tempesta', n: 'Tempesta Caotica', i: '🌪️', desc: 'In questo round ti espandi partendo dai territori del giocatore successivo!' },
+            { id: 'robin_hood', n: 'Legge di Robin Hood', i: '🏹', desc: 'Il primo in classifica ha perso 3 caselle, l\'ultimo ne ha ricevute 3 in dono!' },
+            { id: 'festa', n: 'Giorno di Festa', i: '🎉', desc: 'Tutti i giocatori ottengono +2 mosse gratis per questo round!' },
+            { id: 'carestia', n: 'Carestia', i: '☠️', desc: 'Gli inventari sono bloccati. Nessuno può usare oggetti in questo round!' },
+            { id: 'cataclisma', n: 'Cataclisma', i: '🌋', desc: 'Un tremendo terremoto ha distrutto il 15% di tutte le caselle occupate sulla mappa!' },
+            { id: 'glaciale', n: 'Era Glaciale', i: '🧊', desc: 'Il pavimento è scivoloso! Ogni conquista ti regala automaticamente una casella adiacente extra.' },
+            { id: 'meteoriti', n: 'Pioggia di Meteoriti', i: '☄️', desc: 'Sono precipitate delle meteore che hanno creato muri indistruttibili sulla mappa!' }
+        ];
+
         // --- FUNZIONI DI UTILITÀ ---
         const getCollectionRef = () => collection(db, 'artifacts', appId, 'public', 'data', 'rooms');
 
@@ -212,7 +214,7 @@
                 const dist = Math.abs(x - center) + Math.abs(y - center);
                 valid = dist <= size / 2 + 0.5;
               }
-              if (valid) board[`${x},${y}`] = { owner: null, item: Math.random() < 0.08 ? ITEMS[Math.floor(Math.random() * ITEMS.length)].id : null };
+              if (valid) board[`${x},${y}`] = { owner: null, item: Math.random() < 0.08 ? ITEMS[Math.floor(Math.random() * ITEMS.length)].id : null, isWall: false };
             }
           }
           return board;
@@ -233,8 +235,7 @@
               const [x, y] = key.split(',').map(Number);
               const dist = Math.abs(x - ideal[0]) + Math.abs(y - ideal[1]);
               if (dist < minDist && !actualSpawns.includes(`${x},${y}`)) {
-                minDist = dist;
-                nearest = `${x},${y}`;
+                minDist = dist; nearest = `${x},${y}`;
               }
             });
             if (nearest) actualSpawns.push(nearest);
@@ -261,48 +262,37 @@
                 currentSize = numMatches * (matchSize / 2); 
             }
             
-            phases.push({ name: "Finalissima", matches: [{ players: [], completed: false, winners: [] }], matchSize: 4 });
+            phases.push({ name: "Top 4", matches: [{ players: [], completed: false, winners: [] }], matchSize: 4 });
+            phases.push({ name: "Finalissima", matches: [{ players: [], completed: false, winners: [] }], matchSize: 2 });
             return phases;
         };
 
         const handleTournamentMatchEnd = async (room, winners) => {
             const { phases, currentPhase, currentMatch } = room.tournament;
             const newPhases = [...phases];
-            
             newPhases[currentPhase].matches[currentMatch].winners = winners;
             newPhases[currentPhase].matches[currentMatch].completed = true;
 
-            let nextPhaseIdx = currentPhase;
-            let nextMatchIdx = currentMatch + 1;
+            let nextPhaseIdx = currentPhase; let nextMatchIdx = currentMatch + 1;
 
             if (nextMatchIdx >= newPhases[currentPhase].matches.length) {
-                nextPhaseIdx++;
-                nextMatchIdx = 0;
-                
+                nextPhaseIdx++; nextMatchIdx = 0;
                 if (nextPhaseIdx < newPhases.length) {
                     const prevMatchesCount = newPhases[currentPhase].matches.length;
                     const nextMatchesCount = newPhases[nextPhaseIdx].matches.length;
-                    
                     for (let i = 0; i < prevMatchesCount; i++) {
                          let nextPhaseMatchIdx;
-                         if (prevMatchesCount === nextMatchesCount) {
-                             nextPhaseMatchIdx = i;
-                         } else { 
-                             nextPhaseMatchIdx = Math.floor(i / 2); 
-                         }
+                         if (prevMatchesCount === nextMatchesCount) nextPhaseMatchIdx = i;
+                         else nextPhaseMatchIdx = Math.floor(i / 2); 
                          newPhases[nextPhaseIdx].matches[nextPhaseMatchIdx].players.push(...newPhases[currentPhase].matches[i].winners);
                     }
                 }
             }
 
-            await updateDoc(doc(getFirestore(), 'artifacts', typeof __app_id !== 'undefined' ? __app_id : 'territory-war-app', 'public', 'data', 'rooms', room.id), {
-                status: 'tournament_bracket',
-                'tournament.phases': newPhases,
-                'tournament.currentPhase': nextPhaseIdx,
-                'tournament.currentMatch': nextMatchIdx
+            await updateDoc(doc(getCollectionRef(), room.id), {
+                status: 'tournament_bracket', 'tournament.phases': newPhases, 'tournament.currentPhase': nextPhaseIdx, 'tournament.currentMatch': nextMatchIdx
             });
         };
-
 
         // --- COMPONENTE PRINCIPALE ---
         function App() {
@@ -315,37 +305,24 @@
           const [notification, setNotification] = useState(null);
           const [globalNotice, setGlobalNotice] = useState(null);
 
-          const showNotif = (msg) => {
-            setNotification(msg);
-            setTimeout(() => setNotification(null), 3000);
-          };
+          const showNotif = (msg) => { setNotification(msg); setTimeout(() => setNotification(null), 3000); };
+          const showGlobalNotif = (msg) => { setGlobalNotice(msg); setTimeout(() => setGlobalNotice(null), 5000); };
 
-          const showGlobalNotif = (msg) => {
-            setGlobalNotice(msg);
-            setTimeout(() => setGlobalNotice(null), 4000);
-          };
-
-          // Ascolta eventi globali (per strumenti e bot)
           useEffect(() => {
               if(room?.globalAction && room.globalAction.id !== window.lastGlobalActionId) {
                   window.lastGlobalActionId = room.globalAction.id;
                   showGlobalNotif(room.globalAction.msg);
-                  playActionSound();
+                  if (room.globalAction.msg.includes('🚨 METEO:')) playEventSound();
+                  else playActionSound();
               }
           }, [room?.globalAction]);
 
           useEffect(() => {
             const initAuth = async () => {
               try {
-                if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) {
-                  await signInWithCustomToken(auth, __initial_auth_token);
-                } else {
-                  await signInAnonymously(auth);
-                }
-              } catch (e) {
-                console.error("Auth error", e);
-                try { await signInAnonymously(auth); } catch(err) { console.error(err); }
-              }
+                if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) await signInWithCustomToken(auth, __initial_auth_token);
+                else await signInAnonymously(auth);
+              } catch (e) { try { await signInAnonymously(auth); } catch(err) {} }
             };
             initAuth();
             const unsub = onAuthStateChanged(auth, setUser);
@@ -356,16 +333,9 @@
             if (!user || !roomId) return;
             const roomRef = doc(getCollectionRef(), roomId);
             const unsub = onSnapshot(roomRef, (docSnap) => {
-              if (docSnap.exists()) {
-                setRoom({ id: docSnap.id, ...docSnap.data() });
-              } else {
-                setError("Stanza non trovata!");
-                setRoom(null);
-              }
-            }, (err) => {
-              console.error(err);
-              setError("Errore connessione.");
-            });
+              if (docSnap.exists()) setRoom({ id: docSnap.id, ...docSnap.data() });
+              else { setError("Stanza non trovata!"); setRoom(null); }
+            }, (err) => { setError("Errore connessione."); });
             return () => unsub();
           }, [user, roomId]);
 
@@ -376,32 +346,17 @@
             const newRoomId = Math.random().toString(36).substring(2, 8).toUpperCase();
             const hostColor = '#' + Math.floor(Math.random()*16777215).toString(16).padStart(6, '0');
             const roomData = {
-              status: 'lobby',
-              hostId: user.uid,
-              config: { 
-                  mode: 'standard', 
-                  players: 4,       
-                  tournamentSize: 8, 
-                  size: 10, 
-                  shape: 'square', 
-                  maxRounds: 20,
-                  invasionMode: false,
-                  botSpeed: 1
-              },
-              players: {
-                [user.uid]: { id: user.uid, n: playerName.trim(), isBot: false, color: hostColor, charId: null, ready: false, hasStregoneria: false }
-              },
-              playerOrder: [user.uid],
-              round: 1,
-              turnIndex: 0
+              status: 'lobby', hostId: user.uid,
+              config: { mode: 'standard', players: 4, tournamentSize: 8, size: 10, shape: 'square', maxRounds: 20, invasionMode: false, botSpeed: 1, eventsEnabled: false },
+              players: { [user.uid]: { id: user.uid, n: playerName.trim(), isBot: false, color: hostColor, charId: null, ready: false, hasStregoneria: false } },
+              playerOrder: [user.uid], round: 1, turnIndex: 0, currentEvent: null
             };
             await setDoc(doc(getCollectionRef(), newRoomId), roomData);
             setRoomId(newRoomId);
           };
 
           const joinRoom = async (e) => {
-            e.preventDefault();
-            initAudio();
+            e.preventDefault(); initAudio();
             const code = e.target.elements.code.value.toUpperCase();
             if (!user || !code) return;
             if (!playerName.trim()) return setError("Inserisci il tuo nome prima di unirti!");
@@ -411,97 +366,51 @@
               const snap = await getDoc(roomRef);
               if (snap.exists()) {
                 const data = snap.data();
-                if (data.status !== 'lobby') {
-                  setError("Partita già iniziata!");
-                } else if (data.config.mode === 'standard' && data.playerOrder.length >= data.config.players) {
-                  setError("Stanza piena!");
-                } else if (data.config.mode === 'tournament' && data.playerOrder.length >= data.config.tournamentSize) {
-                  setError("Torneo pieno!");
-                } else if (!data.players[user.uid]) {
+                if (data.status !== 'lobby') setError("Partita già iniziata!");
+                else if (data.config.mode === 'standard' && data.playerOrder.length >= data.config.players) setError("Stanza piena!");
+                else if (data.config.mode === 'tournament' && data.playerOrder.length >= data.config.tournamentSize) setError("Torneo pieno!");
+                else if (!data.players[user.uid]) {
                   const newColor = '#' + Math.floor(Math.random()*16777215).toString(16).padStart(6, '0');
                   await updateDoc(roomRef, {
                     [`players.${user.uid}`]: { id: user.uid, n: playerName.trim(), isBot: false, color: newColor, charId: null, ready: false, hasStregoneria: false },
                     playerOrder: [...data.playerOrder, user.uid]
                   });
-                  setRoomId(code);
-                  setError("");
-                } else {
-                  setRoomId(code); // Già dentro
-                }
-              } else {
-                setError("Stanza inesistente!");
-              }
-            } catch (e) {
-              setError("Errore durante l'accesso.");
-            }
+                  setRoomId(code); setError("");
+                } else setRoomId(code);
+              } else setError("Stanza inesistente!");
+            } catch (e) { setError("Errore durante l'accesso."); }
             setJoining(false);
           };
 
-          const leaveRoom = () => {
-            setRoomId('');
-            setRoom(null);
-          };
+          const leaveRoom = () => { setRoomId(''); setRoom(null); };
 
           if (!user) return <div className="min-h-[100dvh] bg-gray-900 flex items-center justify-center text-white">Caricamento...</div>;
 
           return (
             <div className="min-h-[100dvh] bg-slate-900 text-slate-100 font-sans selection:bg-indigo-500 selection:text-white">
-              {notification && (
-                <div className="fixed top-4 left-1/2 transform -translate-x-1/2 bg-indigo-600 text-white px-6 py-3 rounded-full shadow-2xl z-50 animate-bounce">
-                  {notification}
-                </div>
-              )}
-
-              {/* Notifica Globale di Gioco (Centrale gigante e visibile a tutti) */}
-              {globalNotice && (
-                <div className="fixed top-1/4 left-1/2 transform -translate-x-1/2 -translate-y-1/2 bg-red-600/90 backdrop-blur-sm text-white px-10 py-5 rounded-2xl shadow-[0_0_40px_rgba(220,38,38,0.6)] z-[60] text-xl font-black text-center border-2 border-red-400 animate-bounce">
-                  🚨 {globalNotice} 🚨
-                </div>
-              )}
+              {notification && ( <div className="fixed top-4 left-1/2 transform -translate-x-1/2 bg-indigo-600 text-white px-6 py-3 rounded-full shadow-2xl z-50 animate-bounce">{notification}</div> )}
+              {globalNotice && ( <div className="fixed top-1/4 left-1/2 transform -translate-x-1/2 -translate-y-1/2 bg-red-600/90 backdrop-blur-sm text-white px-10 py-5 rounded-2xl shadow-[0_0_40px_rgba(220,38,38,0.6)] z-[60] text-xl font-black text-center border-2 border-red-400 animate-bounce">🚨 {globalNotice} 🚨</div> )}
 
               {!room ? (
                 <div className="flex flex-col items-center justify-center min-h-[100dvh] p-4">
                   <div className="bg-slate-800 p-8 rounded-2xl shadow-xl w-full max-w-md border border-slate-700">
                     <h1 className="text-4xl font-black text-center mb-8 bg-gradient-to-r from-indigo-400 to-purple-400 bg-clip-text text-transparent">TERRITORY WAR</h1>
-                    
                     <div className="mb-6">
                         <label className="block text-sm text-slate-400 mb-1 font-bold">Il tuo Nome nel Gioco</label>
-                        <input 
-                            type="text" 
-                            value={playerName} 
-                            onChange={(e) => { setPlayerName(e.target.value); localStorage.setItem('tw_player_name', e.target.value); }} 
-                            placeholder="Es. Marco, Giocatore1..." 
-                            className="w-full bg-slate-900 border-2 border-slate-600 rounded-xl px-4 py-3 outline-none focus:border-indigo-500 text-center font-bold text-lg" 
-                            maxLength={15} 
-                        />
+                        <input type="text" value={playerName} onChange={(e) => { setPlayerName(e.target.value); localStorage.setItem('tw_player_name', e.target.value); }} placeholder="Es. Marco, Giocatore1..." className="w-full bg-slate-900 border-2 border-slate-600 rounded-xl px-4 py-3 outline-none focus:border-indigo-500 text-center font-bold text-lg" maxLength={15} />
                     </div>
-
-                    <button onClick={createRoom} className="w-full bg-indigo-600 hover:bg-indigo-500 text-white font-bold py-3 px-4 rounded-xl mb-6 transition-all transform hover:scale-105 shadow-lg shadow-indigo-500/30">
-                      Crea Nuova Stanza
-                    </button>
-                    
-                    <div className="flex items-center mb-6">
-                      <div className="flex-grow border-t border-slate-600"></div>
-                      <span className="px-4 text-slate-400 text-sm">OPPURE</span>
-                      <div className="flex-grow border-t border-slate-600"></div>
-                    </div>
-
+                    <button onClick={createRoom} className="w-full bg-indigo-600 hover:bg-indigo-500 text-white font-bold py-3 px-4 rounded-xl mb-6 transition-all transform hover:scale-105 shadow-lg shadow-indigo-500/30">Crea Nuova Stanza</button>
+                    <div className="flex items-center mb-6"><div className="flex-grow border-t border-slate-600"></div><span className="px-4 text-slate-400 text-sm">OPPURE</span><div className="flex-grow border-t border-slate-600"></div></div>
                     <form onSubmit={joinRoom} className="flex gap-2">
                       <input name="code" type="text" placeholder="Codice Stanza" className="flex-grow bg-slate-700 border border-slate-600 rounded-xl px-4 py-3 outline-none focus:border-indigo-500 uppercase font-mono text-center" maxLength={6} required />
-                      <button type="submit" disabled={joining} className="bg-emerald-600 hover:bg-emerald-500 text-white font-bold py-3 px-6 rounded-xl transition-all disabled:opacity-50">
-                        {joining ? '...' : 'Entra'}
-                      </button>
+                      <button type="submit" disabled={joining} className="bg-emerald-600 hover:bg-emerald-500 text-white font-bold py-3 px-6 rounded-xl transition-all disabled:opacity-50">{joining ? '...' : 'Entra'}</button>
                     </form>
                     {error && <p className="text-red-400 mt-4 text-center font-bold">{error}</p>}
                   </div>
                 </div>
-              ) : room.status === 'lobby' ? (
-                <Lobby room={room} user={user} onLeave={leaveRoom} showNotif={showNotif} />
-              ) : room.status === 'tournament_bracket' ? (
-                <TournamentBracket room={room} user={user} showNotif={showNotif} />
-              ) : (
-                <Game room={room} user={user} showNotif={showNotif} />
-              )}
+              ) : room.status === 'lobby' ? ( <Lobby room={room} user={user} onLeave={leaveRoom} showNotif={showNotif} />
+              ) : room.status === 'tournament_bracket' ? ( <TournamentBracket room={room} user={user} showNotif={showNotif} />
+              ) : ( <Game room={room} user={user} showNotif={showNotif} /> )}
             </div>
           );
         }
@@ -513,39 +422,27 @@
           const [filter, setFilter] = useState('All');
 
           const categories = ['All', 'Alfabetico', ...new Set(CHARACTERS.map(c => c.cat))];
-          
           let displayedChars = [...CHARACTERS];
           if (filter === 'Alfabetico') displayedChars.sort((a, b) => a.n.localeCompare(b.n));
           else if (filter !== 'All') displayedChars = displayedChars.filter(c => c.cat === filter);
 
-          const updateConfig = async (key, val) => {
-            if (!isHost) return;
-            await updateDoc(doc(getCollectionRef(), room.id), { [`config.${key}`]: val });
-          };
+          const updateConfig = async (key, val) => { if (!isHost) return; await updateDoc(doc(getCollectionRef(), room.id), { [`config.${key}`]: val }); };
 
           const selectChar = async (charId) => {
-            const isTaken = Object.values(room.players).some(p => p.charId === charId);
-            if (isTaken) return showNotif("Personaggio già preso!");
-            
-            await updateDoc(doc(getCollectionRef(), room.id), {
-              [`players.${user.uid}.charId`]: charId
-            });
+            if (Object.values(room.players).some(p => p.charId === charId)) return showNotif("Personaggio già preso!");
+            await updateDoc(doc(getCollectionRef(), room.id), { [`players.${user.uid}.charId`]: charId });
           };
 
           const toggleReady = async () => {
             if (!me?.charId) return showNotif("Scegli un personaggio prima!");
-            await updateDoc(doc(getCollectionRef(), room.id), {
-              [`players.${user.uid}.ready`]: !me.ready
-            });
+            await updateDoc(doc(getCollectionRef(), room.id), { [`players.${user.uid}.ready`]: !me.ready });
           };
 
           const addBot = async () => {
             const maxAllowed = room.config.mode === 'tournament' ? room.config.tournamentSize : room.config.players;
             if (!isHost || room.playerOrder.length >= maxAllowed) return;
-            
             const botId = `bot_${Math.random().toString(36).substring(2, 7)}`;
             const color = '#' + Math.floor(Math.random()*16777215).toString(16).padStart(6, '0');
-            
             const pickedChars = Object.values(room.players).map(p => p.charId).filter(Boolean);
             const available = CHARACTERS.filter(c => !pickedChars.includes(c.id));
             const char = available[Math.floor(Math.random() * available.length)];
@@ -562,19 +459,14 @@
               const pickedChars = Object.values(existingPlayersObj).map(p => p.charId).filter(Boolean);
               const available = CHARACTERS.filter(c => !pickedChars.includes(c.id));
               const char = available[Math.floor(Math.random() * available.length)];
-              
-              return { 
-                  id: botId, 
-                  data: { id: botId, n: `[BOT] ${char.n}`, isBot: true, color, charId: char.id, ready: true, hasStregoneria: false } 
-              };
+              return { id: botId, data: { id: botId, n: `[BOT] ${char.n}`, isBot: true, color, charId: char.id, ready: true, hasStregoneria: false } };
           };
 
           const startGame = async () => {
             if (!isHost) return;
-            const allReady = Object.values(room.players).every(p => p?.ready);
-            if (!allReady) return showNotif("Tutti devono essere pronti!");
+            if (!Object.values(room.players).every(p => p?.ready)) return showNotif("Tutti devono essere pronti!");
 
-            initAudio(); // Inizializza audio interazione host
+            initAudio();
 
             if (room.config.mode === 'tournament') {
                 let finalPlayersObj = { ...room.players };
@@ -582,51 +474,35 @@
                 
                 while (finalPlayerOrder.length < room.config.tournamentSize) {
                     const bot = generateTournamentBot(finalPlayersObj, finalPlayerOrder);
-                    finalPlayersObj[bot.id] = bot.data;
-                    finalPlayerOrder.push(bot.id);
+                    finalPlayersObj[bot.id] = bot.data; finalPlayerOrder.push(bot.id);
                 }
 
                 const shuffledOrder = [...finalPlayerOrder].sort(() => Math.random() - 0.5);
                 const tournamentPhases = buildTournamentTree(room.config.tournamentSize);
                 
                 let playerIdx = 0;
-                const firstPhaseMatchSize = tournamentPhases[0].matchSize;
                 tournamentPhases[0].matches.forEach(match => {
-                    for(let i=0; i < firstPhaseMatchSize; i++) {
-                        if (shuffledOrder[playerIdx]) {
-                            match.players.push(shuffledOrder[playerIdx]);
-                            playerIdx++;
-                        }
+                    for(let i=0; i < tournamentPhases[0].matchSize; i++) {
+                        if (shuffledOrder[playerIdx]) { match.players.push(shuffledOrder[playerIdx]); playerIdx++; }
                     }
                 });
 
                 await updateDoc(doc(getCollectionRef(), room.id), {
-                    status: 'tournament_bracket',
-                    players: finalPlayersObj,
-                    playerOrder: finalPlayerOrder,
-                    tournament: {
-                        phases: tournamentPhases,
-                        currentPhase: 0,
-                        currentMatch: 0
-                    }
+                    status: 'tournament_bracket', players: finalPlayersObj, playerOrder: finalPlayerOrder,
+                    tournament: { phases: tournamentPhases, currentPhase: 0, currentMatch: 0 }
                 });
 
             } else {
                 const board = generateBoard(room.config.size, room.config.shape);
                 const spawns = getSpawnPoints(room.config.size, room.playerOrder.length, board);
                 
-                const updates = { status: 'playing', board: board, turnIndex: 0, round: 1, actionState: 'rolling', movesLeft: 0, currentRoll: 0 };
+                const updates = { status: 'playing', turnIndex: 0, round: 1, actionState: 'rolling', movesLeft: 0, currentRoll: 0, currentEvent: null };
                 room.playerOrder.forEach((pid, idx) => {
-                  updates[`players.${pid}.tiles`] = 1;
-                  updates[`players.${pid}.inventory`] = [];
-                  updates[`players.${pid}.modifier`] = 0;
-                  updates[`players.${pid}.isTrapped`] = false;
-                  updates[`players.${pid}.hasStregoneria`] = false;
-                  if (spawns[idx]) {
-                    board[`${spawns[idx]}`] = { owner: pid, item: null, isSpawn: true };
-                  }
+                  updates[`players.${pid}.tiles`] = 1; updates[`players.${pid}.inventory`] = [];
+                  updates[`players.${pid}.modifier`] = 0; updates[`players.${pid}.isTrapped`] = false; updates[`players.${pid}.hasStregoneria`] = false;
+                  if (spawns[idx]) { board[`${spawns[idx]}`] = { owner: pid, item: null, isSpawn: true, isWall: false }; }
                 });
-                updates.board = board; // Aggiorna il blocco tutto intero per sicurezza su Firebase
+                updates.board = board; 
                 await updateDoc(doc(getCollectionRef(), room.id), updates);
             }
           };
@@ -635,7 +511,6 @@
 
           return (
             <div className="max-w-6xl mx-auto p-4 flex flex-col md:flex-row gap-6 h-[100dvh]">
-              {/* Sidebar Settings & Players */}
               <div className="w-full md:w-1/3 flex flex-col gap-4 overflow-y-auto pr-2 custom-scrollbar relative">
                 <div className="bg-slate-800 p-6 rounded-2xl border border-slate-700 shrink-0">
                   <div className="flex justify-between items-center mb-4">
@@ -663,32 +538,31 @@
                           <div>
                             <label className="block text-sm text-slate-400 mb-1">Partecipanti Torneo</label>
                             <select value={room.config.tournamentSize} onChange={(e) => updateConfig('tournamentSize', parseInt(e.target.value))} className="w-full bg-slate-700 rounded p-2 text-white font-bold">
-                              <option value="8">8 Giocatori (1 Girone)</option>
-                              <option value="16">16 Giocatori (2 Gironi)</option>
-                              <option value="32">32 Giocatori (4 Gironi)</option>
-                              <option value="64">64 Giocatori (8 Gironi)</option>
+                              <option value="8">8 Giocatori</option><option value="16">16 Giocatori</option><option value="32">32 Giocatori</option><option value="64">64 Giocatori</option>
                             </select>
-                            <p className="text-xs text-slate-400 mt-1">I posti vuoti verranno riempiti dai Bot all'avvio.</p>
                           </div>
                       )}
 
                       <div>
-                        <label className="block text-sm text-slate-400 mb-1">Regole Invasione</label>
+                        <label className="block text-sm text-slate-400 mb-1">Regole di Combattimento</label>
                         <div className="flex gap-2">
                             <button onClick={() => updateConfig('invasionMode', false)} className={`flex-1 py-2 rounded ${!room.config.invasionMode ? 'bg-indigo-500 text-white font-bold' : 'bg-slate-700 text-slate-300'}`}>Pacifica</button>
                             <button onClick={() => updateConfig('invasionMode', true)} className={`flex-1 py-2 rounded ${room.config.invasionMode ? 'bg-red-500 text-white font-bold' : 'bg-slate-700 text-slate-300'}`}>Guerra</button>
                         </div>
-                        <p className="text-xs text-slate-400 mt-1">
-                          {!room.config.invasionMode ? 'Non puoi rubare le caselle altrui.' : 'Puoi conquistare le caselle nemiche.'}
-                        </p>
+                      </div>
+
+                      <div>
+                        <label className="block text-sm text-slate-400 mb-1">Eventi Speciali Meteo 🌪️</label>
+                        <div className="flex gap-2">
+                            <button onClick={() => updateConfig('eventsEnabled', false)} className={`flex-1 py-2 rounded ${!room.config.eventsEnabled ? 'bg-indigo-500 text-white font-bold' : 'bg-slate-700 text-slate-300'}`}>Classica</button>
+                            <button onClick={() => updateConfig('eventsEnabled', true)} className={`flex-1 py-2 rounded ${room.config.eventsEnabled ? 'bg-purple-600 text-white font-bold shadow-[0_0_15px_purple]' : 'bg-slate-700 text-slate-300'}`}>Caos Meteo!</button>
+                        </div>
                       </div>
 
                       <div>
                         <label className="block text-sm text-slate-400 mb-1">Mappa</label>
                         <select value={room.config.shape} onChange={(e) => updateConfig('shape', e.target.value)} className="w-full bg-slate-700 rounded p-2 text-white">
-                          <option value="square">Quadrato</option>
-                          <option value="circle">Cerchio</option>
-                          <option value="diamond">Rombo</option>
+                          <option value="square">Quadrato</option><option value="circle">Cerchio</option><option value="diamond">Rombo</option>
                         </select>
                       </div>
                       <div>
@@ -696,23 +570,16 @@
                         <input type="range" min="5" max="18" value={room.config.size} onChange={(e) => updateConfig('size', parseInt(e.target.value))} className="w-full accent-indigo-500" />
                       </div>
                       <div>
-                        <label className="block text-sm text-slate-400 mb-1">Rounds per Match ({room.config.maxRounds})</label>
+                        <label className="block text-sm text-slate-400 mb-1">Rounds ({room.config.maxRounds})</label>
                         <input type="range" min="5" max="50" value={room.config.maxRounds} onChange={(e) => updateConfig('maxRounds', parseInt(e.target.value))} className="w-full accent-indigo-500" />
                       </div>
                       
                       {room.config.mode === 'standard' && (
-                          <button onClick={addBot} disabled={room.playerOrder.length >= room.config.players} className="w-full bg-slate-700 hover:bg-slate-600 py-2 rounded text-sm disabled:opacity-50">
-                            + Aggiungi Bot NPC
-                          </button>
+                          <button onClick={addBot} disabled={room.playerOrder.length >= room.config.players} className="w-full bg-slate-700 hover:bg-slate-600 py-2 rounded text-sm disabled:opacity-50">+ Aggiungi Bot NPC</button>
                       )}
                     </div>
                   ) : (
-                     <div className="text-slate-400 text-sm italic">
-                        In attesa dell'host per le impostazioni...<br/>
-                        Modalità: <strong className="text-white">{room.config.mode === 'tournament' ? 'Torneo' : 'Standard'}</strong><br/>
-                        Invasione: <strong className="text-white">{room.config.invasionMode ? 'Guerra (Ruba caselle)' : 'Pacifica (No furto)'}</strong><br/>
-                        Mappa: {room.config.shape} {room.config.size}x{room.config.size}
-                     </div>
+                     <div className="text-slate-400 text-sm italic">In attesa dell'host per le impostazioni...</div>
                   )}
                 </div>
 
@@ -720,9 +587,7 @@
                   <h3 className="font-bold mb-4 shrink-0">Giocatori in Lobby ({room.playerOrder.length}/{maxDisplayPlayers})</h3>
                   <div className="space-y-3 flex-1 overflow-y-auto pr-2 custom-scrollbar">
                     {room.playerOrder.map(pid => {
-                      const p = room.players[pid];
-                      if(!p) return null;
-                      const c = CHARACTERS.find(x => x.id === p.charId);
+                      const p = room.players[pid]; if(!p) return null; const c = CHARACTERS.find(x => x.id === p.charId);
                       return (
                         <div key={pid} className="flex items-center p-3 rounded-xl bg-slate-700/50 border-l-4 shrink-0" style={{borderColor: p.color}}>
                           {c ? <img src={c.i} alt="" className="w-10 h-10 rounded-full object-cover mr-3 border-2 border-slate-600" /> : <div className="w-10 h-10 rounded-full bg-slate-600 mr-3 flex items-center justify-center text-xs">?</div>}
@@ -739,16 +604,8 @@
                   <div className="mt-6 border-t border-slate-700 pt-4 shrink-0">
                     <h3 className="font-bold mb-3 text-sm text-slate-300">Scegli il tuo Colore</h3>
                     <div className="flex items-center gap-4">
-                      <input 
-                        type="color" 
-                        value={me?.color || '#ffffff'} 
-                        onChange={(e) => updateDoc(doc(getCollectionRef(), room.id), { [`players.${user.uid}.color`]: e.target.value })} 
-                        className="w-16 h-16 rounded-xl cursor-pointer bg-slate-900 border-2 border-slate-600 p-1 shrink-0" 
-                        title="Clicca per scegliere un colore" 
-                      />
-                      <span className="text-sm text-slate-400 leading-snug">
-                        Clicca sul quadrato per aprire la tavolozza e creare la tinta della tua fazione.
-                      </span>
+                      <input type="color" value={me?.color || '#ffffff'} onChange={(e) => updateDoc(doc(getCollectionRef(), room.id), { [`players.${user.uid}.color`]: e.target.value })} className="w-16 h-16 rounded-xl cursor-pointer bg-slate-900 border-2 border-slate-600 p-1 shrink-0" />
+                      <span className="text-sm text-slate-400 leading-snug">Clicca sul quadrato per aprire la tavolozza e creare la tinta della tua fazione.</span>
                     </div>
                   </div>
                 </div>
@@ -765,16 +622,11 @@
                 </div>
               </div>
 
-              {/* Roster Personaggi */}
               <div className="w-full md:w-2/3 bg-slate-800 rounded-2xl border border-slate-700 p-6 flex flex-col h-full overflow-hidden">
                 <h2 className="text-2xl font-black mb-4 shrink-0">Scegli il tuo personaggio</h2>
-                
-                {/* Categories */}
                 <div className="flex gap-2 overflow-x-auto pb-4 mb-4 shrink-0 custom-scrollbar">
                   {categories.map(cat => (
-                    <button key={cat} onClick={() => setFilter(cat)} className={`px-4 py-1.5 rounded-full text-sm whitespace-nowrap transition-colors ${filter === cat ? 'bg-indigo-500 text-white font-bold' : 'bg-slate-700 text-slate-300 hover:bg-slate-600'}`}>
-                      {cat}
-                    </button>
+                    <button key={cat} onClick={() => setFilter(cat)} className={`px-4 py-1.5 rounded-full text-sm whitespace-nowrap transition-colors ${filter === cat ? 'bg-indigo-500 text-white font-bold' : 'bg-slate-700 text-slate-300 hover:bg-slate-600'}`}>{cat}</button>
                   ))}
                 </div>
 
@@ -789,11 +641,7 @@
                           <img src={c.i} alt={c.n} className={`w-full h-full object-cover ${isTaken && !isMe ? 'grayscale' : ''}`} />
                         </div>
                         <span className="text-xs font-bold mt-2 text-center truncate w-full">{c.n}</span>
-                        {isTaken && !isMe && (
-                            <div className="absolute top-8 text-[10px] bg-slate-900 border px-2 py-0.5 rounded shadow truncate max-w-[90%] font-bold" style={{borderColor: takenByPlayer.color, color: takenByPlayer.color}}>
-                                {takenByPlayer.n}
-                            </div>
-                        )}
+                        {isTaken && !isMe && ( <div className="absolute top-8 text-[10px] bg-slate-900 border px-2 py-0.5 rounded shadow truncate max-w-[90%] font-bold" style={{borderColor: takenByPlayer.color, color: takenByPlayer.color}}>{takenByPlayer.n}</div> )}
                       </div>
                      )
                   })}
@@ -809,40 +657,36 @@
             const { phases, currentPhase, currentMatch } = room.tournament;
             
             if (currentPhase >= phases.length) {
-                // Tabellone Riepilogo Finale Torneo
                 const finalPhase = phases[phases.length - 1];
                 const winnerId = finalPhase.matches[0].winners[0];
                 const winner = room.players[winnerId];
 
-                if (!winner) return <div className="h-[100dvh] bg-slate-950 text-white flex items-center justify-center">Calcolo in corso...</div>;
+                if (!winner) return <div className="min-h-[100dvh] bg-slate-950 text-white flex items-center justify-center">Calcolo in corso...</div>;
 
-                // Crea Recap di chi è stato eliminato dove
                 const recap = [];
                 for(let i = phases.length - 1; i >= 0; i--) {
                     const phase = phases[i];
                     const eliminatedHere = [];
                     phase.matches.forEach(m => {
-                        m.players.forEach(p => {
-                            if (!m.winners.includes(p) && room.players[p]) eliminatedHere.push(room.players[p]);
-                        });
+                        m.players.forEach(p => { if (!m.winners.includes(p) && room.players[p]) eliminatedHere.push(room.players[p]); });
                     });
                     if (eliminatedHere.length > 0) {
                         let phaseTitle = `Eliminati in ${phase.name}`;
-                        if (i === phases.length - 1) phaseTitle = "Sconfitto in Finalissima";
-                        else if (i === phases.length - 2) phaseTitle = "Eliminati in Semifinale";
+                        if (i === phases.length - 1) phaseTitle = "Sconfitto in Finalissima (2° Posto)";
+                        else if (i === phases.length - 2) phaseTitle = "Eliminati in Top 4";
                         recap.push({ title: phaseTitle, players: eliminatedHere, color: i === phases.length - 1 ? 'text-slate-300' : 'text-slate-500' });
                     }
                 }
 
                 return (
-                    <div className="h-[100dvh] flex items-center justify-center bg-slate-950 p-4 overflow-hidden">
-                      <div className="bg-slate-800 p-6 md:p-8 rounded-3xl border-4 border-orange-500 shadow-2xl max-w-4xl w-full max-h-full flex flex-col items-center overflow-y-auto custom-scrollbar">
-                          <h1 className="text-5xl md:text-6xl font-black text-transparent bg-clip-text bg-gradient-to-r from-yellow-400 to-yellow-600 mb-8">CAMPIONE!</h1>
+                    <div className="h-[100dvh] w-full flex justify-center items-start bg-slate-950 p-4 md:p-8 overflow-y-auto custom-scrollbar">
+                      <div className="bg-slate-800 p-6 md:p-8 rounded-3xl border-4 border-orange-500 shadow-2xl max-w-4xl w-full flex flex-col items-center my-auto">
+                          <h1 className="text-5xl md:text-6xl font-black text-transparent bg-clip-text bg-gradient-to-r from-yellow-400 to-yellow-600 mb-8 text-center">CAMPIONE!</h1>
                           <div className="relative mb-6">
                               <img src={CHARACTERS.find(c=>c.id===winner.charId)?.i} className="w-48 h-48 rounded-full border-8 border-yellow-400 object-cover shadow-[0_0_40px_rgba(250,204,21,0.6)]" />
                               <div className="absolute -bottom-4 left-1/2 transform -translate-x-1/2 text-5xl">🏆</div>
                           </div>
-                          <h2 className="text-4xl font-black mb-10" style={{color: winner.color}}>{winner.n}</h2>
+                          <h2 className="text-4xl font-black mb-10 text-center" style={{color: winner.color}}>{winner.n}</h2>
 
                           <div className="w-full bg-slate-900 rounded-2xl p-6 border border-slate-700">
                               <h3 className="text-2xl font-bold text-center text-slate-400 mb-6">Hall of Fame - Riepilogo</h3>
@@ -865,12 +709,7 @@
                                   ))}
                               </div>
                           </div>
-
-                          {isHost && (
-                              <button onClick={() => updateDoc(doc(getCollectionRef(), room.id), {status: 'lobby'})} className="mt-8 bg-indigo-600 px-10 py-4 rounded-xl font-black text-xl hover:bg-indigo-500 hover:scale-105 transition-all shrink-0">
-                                  Torna alla Lobby
-                              </button>
-                          )}
+                          {isHost && ( <button onClick={() => updateDoc(doc(getCollectionRef(), room.id), {status: 'lobby'})} className="mt-8 bg-indigo-600 px-10 py-4 rounded-xl font-black text-xl hover:bg-indigo-500 hover:scale-105 transition-all shrink-0">Torna alla Lobby</button> )}
                       </div>
                   </div>
                 );
@@ -879,93 +718,64 @@
             const phase = phases[currentPhase];
             const match = phase.matches[currentMatch];
             
-            // Safe checks per il calcolo se sono tutti bot
             let isAllBots = true;
-            match.players.forEach(pid => {
-                if (room.players[pid] && !room.players[pid].isBot) isAllBots = false;
-            });
+            match.players.forEach(pid => { if (room.players[pid] && !room.players[pid].isBot) isAllBots = false; });
             const isUserPlaying = match.players.includes(user.uid);
 
             const startMatch = async () => {
                 if (!isHost) return;
                 initAudio();
                 const matchPlayers = match.players;
-                const dynamicSize = matchPlayers.length >= 8 ? 14 : 10;
+                const dynamicSize = matchPlayers.length === 2 ? 8 : (matchPlayers.length >= 8 ? 14 : 10);
                 const board = generateBoard(dynamicSize, room.config.shape);
                 const spawns = getSpawnPoints(dynamicSize, matchPlayers.length, board);
                 
                 const updates = { 
                     status: 'playing_match', turnIndex: 0, round: 1, actionState: 'rolling', movesLeft: 0, currentRoll: 0,
-                    currentMatchPlayers: matchPlayers, currentMatchSize: dynamicSize 
+                    currentMatchPlayers: matchPlayers, currentMatchSize: dynamicSize, currentEvent: null 
                 };
                 
                 matchPlayers.forEach((pid, idx) => {
                   updates[`players.${pid}.tiles`] = 1; updates[`players.${pid}.inventory`] = [];
                   updates[`players.${pid}.modifier`] = 0; updates[`players.${pid}.isTrapped`] = false;
                   updates[`players.${pid}.hasStregoneria`] = false;
-                  if (spawns[idx]) {
-                      board[`${spawns[idx]}`] = { owner: pid, item: null, isSpawn: true };
-                  }
+                  if (spawns[idx]) { board[`${spawns[idx]}`] = { owner: pid, item: null, isSpawn: true, isWall: false }; }
                 });
-                updates.board = board; // Aggiorniamo l'oggetto Board completo per non dare errori di cache
-                
+                updates.board = board; 
                 await updateDoc(doc(getCollectionRef(), room.id), updates);
             };
 
             const simulateMatch = async () => {
                 if (!isHost) return;
-                
                 const matchPlayers = match.players;
-                const dynamicSize = matchPlayers.length >= 8 ? 14 : 10;
+                const dynamicSize = matchPlayers.length === 2 ? 8 : (matchPlayers.length >= 8 ? 14 : 10);
                 let fakeBoard = generateBoard(dynamicSize, room.config.shape);
 
                 const keys = Object.keys(fakeBoard);
-                keys.forEach(k => {
-                    if (fakeBoard[k]) {
-                        fakeBoard[k].owner = matchPlayers[Math.floor(Math.random() * matchPlayers.length)];
-                    }
-                });
+                keys.forEach(k => { if (fakeBoard[k]) fakeBoard[k].owner = matchPlayers[Math.floor(Math.random() * matchPlayers.length)]; });
 
-                const tilesCount = {};
-                matchPlayers.forEach(p => tilesCount[p] = 0);
+                const tilesCount = {}; matchPlayers.forEach(p => tilesCount[p] = 0);
                 Object.values(fakeBoard).forEach(c => { if(c && c.owner) tilesCount[c.owner]++; });
 
-                const updates = {
-                    status: 'match_finished', 
-                    board: fakeBoard,
-                    currentMatchPlayers: matchPlayers,
-                    currentMatchSize: dynamicSize,
-                    turnIndex: 0,
-                    actionState: 'rolling'
-                };
-
-                matchPlayers.forEach(pid => {
-                    updates[`players.${pid}.tiles`] = tilesCount[pid];
-                    updates[`players.${pid}.inventory`] = [];
-                });
-
-                // Cambiamo lo stato in match_finished cosicché la Game view carichi la schermata dei risultati e la mappa!
+                const updates = { status: 'match_finished', board: fakeBoard, currentMatchPlayers: matchPlayers, currentMatchSize: dynamicSize, turnIndex: 0, actionState: 'rolling' };
+                matchPlayers.forEach(pid => { updates[`players.${pid}.tiles`] = tilesCount[pid]; updates[`players.${pid}.inventory`] = []; });
                 await updateDoc(doc(getCollectionRef(), room.id), updates);
             };
 
             return (
                 <div className="h-[100dvh] bg-slate-950 text-slate-100 flex flex-col p-4 md:p-8 overflow-hidden">
-                    {/* Header */}
                     <div className="shrink-0 mb-4 md:mb-6 text-center">
                         <h1 className="text-3xl md:text-4xl font-black text-orange-500 tracking-wider">TABELLONE TORNEO</h1>
                         <p className="text-slate-400 text-sm md:text-base">Tutti i match e le fasi della competizione</p>
                     </div>
                     
-                    {/* Control Panel (Current Match) */}
                     <div className="bg-slate-800 p-4 md:p-6 rounded-3xl border border-slate-700 shadow-2xl mb-4 md:mb-6 shrink-0">
                         <h2 className="text-lg md:text-xl font-bold mb-4 text-center text-white">
                             <span className="text-orange-400">{phase.name}</span> • Match in evidenza ({currentMatch + 1}/{phase.matches.length})
                         </h2>
                         <div className="flex flex-wrap justify-center gap-2 md:gap-4 mb-4 md:mb-6">
                             {match.players.map(pid => {
-                                const p = room.players[pid];
-                                if(!p) return null;
-                                const c = CHARACTERS.find(x => x.id === p.charId);
+                                const p = room.players[pid]; if(!p) return null; const c = CHARACTERS.find(x => x.id === p.charId);
                                 return (
                                     <div key={pid} className="flex flex-col items-center bg-slate-700 p-2 md:p-3 rounded-xl shadow border-b-4 w-24 md:w-32" style={{borderColor: p.color}}>
                                         <img src={c?.i} className="w-10 h-10 md:w-14 md:h-14 rounded-full object-cover mb-2 border-2" style={{borderColor: p.color}} />
@@ -978,11 +788,7 @@
                         <div className="flex justify-center max-w-xl mx-auto">
                             {isHost ? (
                                 <div className="flex flex-col sm:flex-row gap-3 md:gap-4 w-full">
-                                    {isAllBots && (
-                                        <button onClick={simulateMatch} className="flex-1 bg-slate-600 hover:bg-slate-500 text-white font-bold py-3 md:py-4 rounded-xl transition-all shadow-md">
-                                            ⚡ Simula e Mostra Risultati
-                                        </button>
-                                    )}
+                                    {isAllBots && ( <button onClick={simulateMatch} className="flex-1 bg-slate-600 hover:bg-slate-500 text-white font-bold py-3 md:py-4 rounded-xl transition-all shadow-md">⚡ Simula e Mostra Risultati</button> )}
                                     <button onClick={startMatch} className="flex-1 bg-orange-600 hover:bg-orange-500 text-white font-bold py-3 md:py-4 rounded-xl shadow-[0_0_20px_rgba(249,115,22,0.4)] text-base md:text-lg transition-all">
                                         {isUserPlaying ? '👉 ENTRA E GIOCA' : '👁️ OSSERVA MATCH'}
                                     </button>
@@ -995,52 +801,29 @@
                         </div>
                     </div>
 
-                    {/* Full Bracket Visualization */}
                     <div className="flex-1 bg-slate-800 rounded-3xl border border-slate-700 p-4 md:p-6 overflow-auto custom-scrollbar">
                         <div className="flex gap-10 min-w-max min-h-full items-stretch">
                             {phases.map((ph, pIdx) => (
                                 <div key={pIdx} className="flex flex-col w-[260px] relative">
-                                    <div className="text-center font-black text-slate-500 uppercase tracking-widest border-b-2 border-slate-700 pb-2 mb-4 shrink-0">
-                                        {ph.name}
-                                    </div>
+                                    <div className="text-center font-black text-slate-500 uppercase tracking-widest border-b-2 border-slate-700 pb-2 mb-4 shrink-0">{ph.name}</div>
                                     <div className="flex flex-col justify-around flex-1 gap-4">
                                         {ph.matches.map((m, mIdx) => {
                                             const isCurrentMatch = pIdx === currentPhase && mIdx === currentMatch;
                                             const isPastMatch = m.completed;
                                             const isFutureMatch = pIdx > currentPhase || (pIdx === currentPhase && mIdx > currentMatch);
-                                            
                                             return (
-                                                <div key={mIdx} className={`relative bg-slate-900 rounded-xl p-3 border-2 transition-all shrink-0
-                                                    ${isCurrentMatch ? 'border-orange-500 shadow-[0_0_15px_rgba(249,115,22,0.5)] scale-105 z-10' : ''}
-                                                    ${isPastMatch ? 'border-emerald-600/50 opacity-70' : ''}
-                                                    ${isFutureMatch ? 'border-slate-700/50' : ''}
-                                                `}>
-                                                    {/* Trattini di connessione laterali (stile Bracket) */}
+                                                <div key={mIdx} className={`relative bg-slate-900 rounded-xl p-3 border-2 transition-all shrink-0 ${isCurrentMatch ? 'border-orange-500 shadow-[0_0_15px_rgba(249,115,22,0.5)] scale-105 z-10' : ''} ${isPastMatch ? 'border-emerald-600/50 opacity-70' : ''} ${isFutureMatch ? 'border-slate-700/50' : ''}`}>
                                                     {pIdx > 0 && <div className="absolute top-1/2 -left-5 w-5 border-t-2 border-slate-600 -z-10"></div>}
                                                     {pIdx < phases.length - 1 && <div className="absolute top-1/2 -right-5 w-5 border-t-2 border-slate-600 -z-10"></div>}
-
                                                     <div className="text-xs text-slate-500 mb-2 font-bold">Match {mIdx + 1}</div>
                                                     <div className="flex flex-col gap-1.5">
                                                         {Array.from({length: ph.matchSize}).map((_, slotIdx) => {
-                                                            const pid = m.players[slotIdx];
-                                                            const player = pid ? room.players[pid] : null;
-                                                            const char = player ? CHARACTERS.find(c => c.id === player.charId) : null;
-                                                            const isWinner = m.winners?.includes(pid);
-                                                            const isEliminated = m.completed && !isWinner;
-                                                            
+                                                            const pid = m.players[slotIdx]; const player = pid ? room.players[pid] : null; const char = player ? CHARACTERS.find(c => c.id === player.charId) : null;
+                                                            const isWinner = m.winners?.includes(pid); const isEliminated = m.completed && !isWinner;
                                                             return (
-                                                                <div key={slotIdx} className={`flex items-center gap-2 px-2 py-1 rounded bg-slate-800
-                                                                    ${isEliminated ? 'opacity-40 grayscale line-through' : ''}
-                                                                    ${isWinner ? 'bg-emerald-900/40 ring-1 ring-emerald-500/50' : ''}
-                                                                `}>
-                                                                    {player ? (
-                                                                        <>
-                                                                            <img src={char?.i} className="w-6 h-6 rounded-full object-cover shrink-0 border" style={{borderColor: player.color}} alt={player.n} />
-                                                                            <span className="text-sm font-bold truncate" style={{color: isEliminated ? '#94a3b8' : player.color}}>{player.n}</span>
-                                                                        </>
-                                                                    ) : (
-                                                                        <span className="text-sm text-slate-600 italic px-8">TBD</span>
-                                                                    )}
+                                                                <div key={slotIdx} className={`flex items-center gap-2 px-2 py-1 rounded bg-slate-800 ${isEliminated ? 'opacity-40 grayscale line-through' : ''} ${isWinner ? 'bg-emerald-900/40 ring-1 ring-emerald-500/50' : ''}`}>
+                                                                    {player ? ( <><img src={char?.i} className="w-6 h-6 rounded-full object-cover shrink-0 border" style={{borderColor: player.color}} /><span className="text-sm font-bold truncate" style={{color: isEliminated ? '#94a3b8' : player.color}}>{player.n}</span></>
+                                                                    ) : ( <span className="text-sm text-slate-600 italic px-8">TBD</span> )}
                                                                 </div>
                                                             );
                                                         })}
@@ -1060,8 +843,6 @@
         // --- GIOCO PRINCIPALE ---
         function Game({ room, user, showNotif }) {
           const isHost = room.hostId === user.uid;
-          
-          // Sicurezza anti-crash: garantiamo che array e variabili abbiano sempre valori di fallback!
           const matchPlayerOrder = (room.status.includes('match') ? room.currentMatchPlayers : room.playerOrder) || [];
           const boardSize = room.status.includes('match') ? (room.currentMatchSize || room.config.size) : room.config.size;
           
@@ -1080,14 +861,11 @@
           const isGameEnded = room.status === 'finished' || room.status === 'match_finished';
           const [showResultsModal, setShowResultsModal] = useState(true);
 
-          // AGGIUNTA PER GESTIONE TOUCH (TABLET/SMARTPHONE)
           const [showItemDesc, setShowItemDesc] = useState(null);
           const touchTimer = useRef(null);
           const isLongPress = useRef(false);
 
-          useEffect(() => {
-            if (isGameEnded) setShowResultsModal(true);
-          }, [isGameEnded]);
+          useEffect(() => { if (isGameEnded) setShowResultsModal(true); }, [isGameEnded]);
 
           // --- BOT LOGIC ---
           useEffect(() => {
@@ -1097,7 +875,6 @@
             const botPlay = async () => {
               const updates = {};
               
-              // Se il bot ha la stregoneria addosso
               if (activePlayer?.hasStregoneria) {
                   const baseRoll = Math.floor(Math.random() * 6) + 1;
                   const totalRoll = Math.max(1, baseRoll + (activePlayer?.modifier || 0));
@@ -1106,10 +883,7 @@
                   const myTiles = Object.keys(currentBoard).filter(k => currentBoard[k]?.owner === activePlayerId && !currentBoard[k]?.isSpawn);
                   const toDestroy = myTiles.sort(() => 0.5 - Math.random()).slice(0, totalRoll);
                   
-                  toDestroy.forEach(k => {
-                      currentBoard[k] = { ...currentBoard[k], owner: null, item: null };
-                      updates[`board.${k}`] = currentBoard[k];
-                  });
+                  toDestroy.forEach(k => { currentBoard[k] = { ...currentBoard[k], owner: null, item: null }; updates[`board.${k}`] = currentBoard[k]; });
                   
                   updates[`players.${activePlayerId}.tiles`] = Math.max(1, Object.keys(currentBoard).filter(k => currentBoard[k]?.owner === activePlayerId).length);
                   updates[`players.${activePlayerId}.hasStregoneria`] = false;
@@ -1121,7 +895,9 @@
                   return;
               }
 
-              const playable = getPlayableTiles(activePlayerId, room.board || {}, boardSize, room.config.invasionMode);
+              // Evento Tempesta Caotica: Il bot gioca dai territori del prossimo giocatore
+              const sourcePlayerId = room.currentEvent === 'tempesta' ? matchPlayerOrder[(matchPlayerOrder.indexOf(activePlayerId) + 1) % matchPlayerOrder.length] : activePlayerId;
+              const playable = getPlayableTiles(sourcePlayerId, room.board || {}, boardSize, room.config.invasionMode, activePlayerId);
               
               if (playable.length === 0) {
                 showNotif(`${activePlayer?.n} è chiuso e salta il turno!`);
@@ -1142,12 +918,13 @@
 
               const makeMove = async () => {
                 if (currentMoves <= 0) {
-                  if (currentInv.length > 0) {
+                  // I bot non usano oggetti durante la carestia
+                  if (currentInv.length > 0 && room.currentEvent !== 'carestia') {
                     const item = currentInv[0];
                     if (item === 'turbo') updates[`players.${activePlayerId}.modifier`] = 2;
                     
                     if (item === 'conquista') {
-                         const emptyTiles = Object.keys(currentBoard).filter(k => currentBoard[k] && !currentBoard[k].owner);
+                         const emptyTiles = Object.keys(currentBoard).filter(k => currentBoard[k] && !currentBoard[k].owner && !currentBoard[k].isWall);
                          if(emptyTiles.length > 0) {
                              const toClaim = emptyTiles.sort(() => 0.5 - Math.random()).slice(0, 2);
                              toClaim.forEach(k => { currentBoard[k] = { ...currentBoard[k], owner: activePlayerId, item: null }; updates[`board.${k}`] = currentBoard[k]; });
@@ -1179,7 +956,6 @@
                             }
                         }
                     }
-                    
                     currentInv.shift(); 
                     updates[`players.${activePlayerId}.inventory`] = currentInv;
                   }
@@ -1191,7 +967,9 @@
                   return;
                 }
 
-                const validMoves = getPlayableTiles(activePlayerId, currentBoard, boardSize, room.config.invasionMode);
+                // Riapplica la Tempesta Caotica per ricalcolare ogni singolo passo!
+                const dynamicSource = room.currentEvent === 'tempesta' ? matchPlayerOrder[(matchPlayerOrder.indexOf(activePlayerId) + 1) % matchPlayerOrder.length] : activePlayerId;
+                const validMoves = getPlayableTiles(dynamicSource, currentBoard, boardSize, room.config.invasionMode, activePlayerId);
                 if (validMoves.length === 0) { await nextTurn(); return; }
 
                 let bestMove = validMoves[0];
@@ -1201,18 +979,30 @@
 
                 const pickedItem = currentBoard[bestMove].item;
                 currentBoard[bestMove] = { ...currentBoard[bestMove], owner: activePlayerId, item: null };
+                updates[`board.${bestMove}`] = currentBoard[bestMove];
                 currentMoves--;
                 
                 if (pickedItem && currentInv.length < 2) currentInv.push(pickedItem);
 
+                // Era Glaciale Bonus
+                if (room.currentEvent === 'glaciale') {
+                    const [cx, cy] = bestMove.split(',').map(Number);
+                    const adjs = [`${cx+1},${cy}`, `${cx-1},${cy}`, `${cx},${cy+1}`, `${cx},${cy-1}`];
+                    const validIce = adjs.filter(adj => currentBoard[adj] && !currentBoard[adj].owner && !currentBoard[adj].isWall);
+                    if (validIce.length > 0) {
+                        const icePick = validIce[Math.floor(Math.random() * validIce.length)];
+                        currentBoard[icePick] = { ...currentBoard[icePick], owner: activePlayerId, item: null };
+                        updates[`board.${icePick}`] = currentBoard[icePick];
+                    }
+                }
+
                 await updateDoc(boardRef, {
-                  [`board.${bestMove}`]: currentBoard[bestMove],
+                  ...updates,
                   movesLeft: currentMoves,
                   [`players.${activePlayerId}.tiles`]: Object.values(currentBoard).filter(v => v?.owner === activePlayerId).length,
                   [`players.${activePlayerId}.inventory`]: currentInv
                 });
 
-                // Velocità calcolata dinamicamente in base alla scelta dell'host
                 const speedMult = room.config.botSpeed || 1;
                 timeout = setTimeout(makeMove, 600 / speedMult);
               };
@@ -1225,17 +1015,19 @@
             return () => clearTimeout(timeout);
           }, [room.turnIndex, isHost, activePlayer?.isBot, room.config.botSpeed]);
 
-          const getPlayableTiles = (playerId, currentBoard, size, invasionMode) => {
+          const getPlayableTiles = (sourceId, currentBoard, size, invasionMode, actualPlayerId) => {
             const valid = [];
-            const myTiles = Object.entries(currentBoard).filter(([_, v]) => v?.owner === playerId).map(([k]) => k);
+            const actId = actualPlayerId || sourceId;
+            const myTiles = Object.entries(currentBoard).filter(([_, v]) => v?.owner === sourceId).map(([k]) => k);
             myTiles.forEach(tile => {
               const [x, y] = tile.split(',').map(Number);
               const adjs = [`${x+1},${y}`, `${x-1},${y}`, `${x},${y+1}`, `${x},${y-1}`];
               adjs.forEach(adj => {
-                if (currentBoard[adj] !== undefined && !valid.includes(adj)) {
-                    const cellOwner = currentBoard[adj].owner;
+                const cell = currentBoard[adj];
+                if (cell !== undefined && !cell.isWall && !valid.includes(adj)) {
+                    const cellOwner = cell.owner;
                     if (invasionMode) {
-                        if (cellOwner !== playerId) valid.push(adj);
+                        if (cellOwner !== actId && !cell.isSpawn) valid.push(adj);
                     } else {
                         if (cellOwner === null) valid.push(adj);
                     }
@@ -1252,10 +1044,49 @@
              
              if (!extraTurn && nextIdx === 0) {
                  nextRound++;
+                 let currentBoard = { ...(room.board || {}) };
+                 updates.currentEvent = null; // Resetta evento precedente
                  
-                 // Drop casuale (5%) di uno strumento a fine round su una cella vuota
-                 if (Math.random() < 0.08) {
-                     const emptyTiles = Object.keys(room.board || {}).filter(k => room.board[k] && !room.board[k].owner && !room.board[k].item);
+                 // Sistema Eventi Meteo (Gestito dall'Host)
+                 if (isHost && room.config.eventsEnabled && nextRound > 1 && Math.random() < 0.30) {
+                     const ev = EVENT_TYPES[Math.floor(Math.random() * EVENT_TYPES.length)];
+                     updates.globalAction = { msg: `🚨 METEO: ${ev.n}! ${ev.desc}`, id: Date.now() };
+                     
+                     if (ev.id === 'tempesta' || ev.id === 'carestia' || ev.id === 'glaciale') {
+                         updates.currentEvent = ev.id;
+                     } 
+                     else if (ev.id === 'robin_hood') {
+                         const sortedPlayers = [...matchPlayerOrder].sort((a, b) => (room.players[b].tiles || 0) - (room.players[a].tiles || 0));
+                         const first = sortedPlayers[0]; const last = sortedPlayers[sortedPlayers.length - 1];
+                         
+                         let firstTiles = Object.keys(currentBoard).filter(k => currentBoard[k]?.owner === first && !currentBoard[k]?.isSpawn);
+                         const toLose = firstTiles.sort(() => 0.5 - Math.random()).slice(0, 3);
+                         toLose.forEach(k => { currentBoard[k] = { ...currentBoard[k], owner: null, item: null }; updates[`board.${k}`] = currentBoard[k]; });
+                         updates[`players.${first}.tiles`] = Math.max(1, (room.players[first].tiles || 1) - toLose.length);
+
+                         let emptyTiles = Object.keys(currentBoard).filter(k => currentBoard[k] && !currentBoard[k].owner && !currentBoard[k].isWall);
+                         const toGain = emptyTiles.sort(() => 0.5 - Math.random()).slice(0, 3);
+                         toGain.forEach(k => { currentBoard[k] = { ...currentBoard[k], owner: last, item: null }; updates[`board.${k}`] = currentBoard[k]; });
+                         updates[`players.${last}.tiles`] = (room.players[last].tiles || 1) + toGain.length;
+                     }
+                     else if (ev.id === 'festa') {
+                         matchPlayerOrder.forEach(pid => { updates[`players.${pid}.modifier`] = (room.players[pid].modifier || 0) + 2; });
+                     }
+                     else if (ev.id === 'cataclisma') {
+                         const allOwned = Object.keys(currentBoard).filter(k => currentBoard[k]?.owner && !currentBoard[k]?.isSpawn);
+                         const toDestroy = allOwned.sort(() => 0.5 - Math.random()).slice(0, Math.max(1, Math.floor(allOwned.length * 0.15)));
+                         toDestroy.forEach(k => { currentBoard[k] = { ...currentBoard[k], owner: null, item: null }; updates[`board.${k}`] = currentBoard[k]; });
+                         matchPlayerOrder.forEach(pid => { updates[`players.${pid}.tiles`] = Object.values(currentBoard).filter(v => v?.owner === pid).length; });
+                     }
+                     else if (ev.id === 'meteoriti') {
+                         let emptyTilesMet = Object.keys(currentBoard).filter(k => currentBoard[k] && !currentBoard[k].owner && !currentBoard[k].isSpawn && !currentBoard[k].item);
+                         const meteors = emptyTilesMet.sort(() => 0.5 - Math.random()).slice(0, 2);
+                         meteors.forEach(k => { currentBoard[k] = { ...currentBoard[k], owner: null, item: null, isWall: true }; updates[`board.${k}`] = currentBoard[k]; });
+                     }
+                 }
+                 // Drop casuale oggetti (8%) se non c'è una pioggia di meteoriti che occupa le caselle
+                 else if (isHost && Math.random() < 0.08) {
+                     const emptyTiles = Object.keys(room.board || {}).filter(k => room.board[k] && !room.board[k].owner && !room.board[k].item && !room.board[k].isWall);
                      if (emptyTiles.length > 0) {
                          const randomTile = emptyTiles[Math.floor(Math.random() * emptyTiles.length)];
                          const randomItem = ITEMS[Math.floor(Math.random() * ITEMS.length)].id;
@@ -1265,7 +1096,7 @@
                  }
              }
 
-             const totalTiles = Object.keys(room.board || {}).length;
+             const totalTiles = Object.keys(room.board || {}).filter(k => !room.board[k]?.isWall).length;
              const ownedTiles = Object.values(room.board || {}).filter(v => v?.owner).length;
              
              if (nextRound > room.config.maxRounds || ownedTiles >= totalTiles) {
@@ -1273,12 +1104,7 @@
                  return;
              }
 
-             updates.turnIndex = nextIdx; 
-             updates.round = nextRound; 
-             updates.actionState = 'rolling'; 
-             updates.movesLeft = 0; 
-             updates.currentRoll = 0;
-             
+             updates.turnIndex = nextIdx; updates.round = nextRound; updates.actionState = 'rolling'; updates.movesLeft = 0; updates.currentRoll = 0;
              await updateDoc(boardRef, updates);
           };
 
@@ -1314,7 +1140,8 @@
                 return;
             }
 
-            const playable = getPlayableTiles(user.uid, room.board || {}, boardSize, room.config.invasionMode);
+            const sourceId = room.currentEvent === 'tempesta' ? matchPlayerOrder[(matchPlayerOrder.indexOf(user.uid) + 1) % matchPlayerOrder.length] : user.uid;
+            const playable = getPlayableTiles(sourceId, room.board || {}, boardSize, room.config.invasionMode, user.uid);
             if (playable.length === 0) {
                 showNotif("Sei chiuso! Salti il turno.");
                 await updateDoc(boardRef, { [`players.${user.uid}.isTrapped`]: true });
@@ -1328,7 +1155,8 @@
           const clickTile = async (key) => {
             if (!isMyTurn || room.actionState !== 'moving' || room.movesLeft <= 0 || isGameEnded) return;
             
-            const playable = getPlayableTiles(user.uid, room.board || {}, boardSize, room.config.invasionMode);
+            const sourceId = room.currentEvent === 'tempesta' ? matchPlayerOrder[(matchPlayerOrder.indexOf(user.uid) + 1) % matchPlayerOrder.length] : user.uid;
+            const playable = getPlayableTiles(sourceId, room.board || {}, boardSize, room.config.invasionMode, user.uid);
             if (!playable.includes(key)) return;
 
             const cell = room.board[key];
@@ -1342,18 +1170,25 @@
                 playMoveSound();
             }
 
-            const updates = {
-                [`board.${key}`]: { ...room.board[key], owner: user.uid, item: null },
-                movesLeft: room.movesLeft - 1,
-                [`players.${user.uid}.inventory`]: newInv
-            };
-
             const newBoard = {...room.board, [key]: { ...room.board[key], owner: user.uid, item: null }};
-            updates[`players.${user.uid}.tiles`] = Object.values(newBoard).filter(v => v?.owner === user.uid).length;
+            const updates = { [`board.${key}`]: newBoard[key], movesLeft: room.movesLeft - 1, [`players.${user.uid}.inventory`]: newInv };
 
+            // Era Glaciale Bonus
+            if (room.currentEvent === 'glaciale') {
+                const [cx, cy] = key.split(',').map(Number);
+                const adjs = [`${cx+1},${cy}`, `${cx-1},${cy}`, `${cx},${cy+1}`, `${cx},${cy-1}`];
+                const validIce = adjs.filter(adj => newBoard[adj] && !newBoard[adj].owner && !newBoard[adj].isWall);
+                if (validIce.length > 0) {
+                    const icePick = validIce[Math.floor(Math.random() * validIce.length)];
+                    newBoard[icePick] = { ...newBoard[icePick], owner: user.uid, item: null };
+                    updates[`board.${icePick}`] = newBoard[icePick];
+                }
+            }
+
+            updates[`players.${user.uid}.tiles`] = Object.values(newBoard).filter(v => v?.owner === user.uid).length;
             await updateDoc(boardRef, updates);
 
-            const newPlayable = getPlayableTiles(user.uid, newBoard, boardSize, room.config.invasionMode);
+            const newPlayable = getPlayableTiles(sourceId, newBoard, boardSize, room.config.invasionMode, user.uid);
             if (room.movesLeft - 1 === 0 || newPlayable.length === 0) {
                 await updateDoc(boardRef, { actionState: 'items_or_end' });
             }
@@ -1363,110 +1198,89 @@
 
           const useItem = async (slotIdx, itemId) => {
               if (!isMyTurn || isGameEnded) return;
+              if (room.currentEvent === 'carestia') return showNotif("Carestia in corso: non puoi usare oggetti!");
               
               if (itemId === 'turbo') {
                   await updateDoc(boardRef, { [`players.${user.uid}.modifier`]: 2 });
-                  consumeItem(slotIdx);
-                  showNotif("Turbo attivato! +2 al prossimo lancio.");
+                  consumeItem(slotIdx); showNotif("Turbo attivato! +2 al prossimo lancio.");
               } 
               else if (itemId === 'jackpot' && room.actionState === 'items_or_end') {
-                  consumeItem(slotIdx);
-                  showNotif("JACKPOT! Giochi di nuovo!");
-                  nextTurn(true); 
+                  consumeItem(slotIdx); showNotif("JACKPOT! Giochi di nuovo!"); nextTurn(true); 
               } 
               else if (itemId === 'conquista') {
                   let currentBoard = { ...(room.board || {}) };
-                  const emptyTiles = Object.keys(currentBoard).filter(k => currentBoard[k] && !currentBoard[k].owner);
+                  const emptyTiles = Object.keys(currentBoard).filter(k => currentBoard[k] && !currentBoard[k].owner && !currentBoard[k].isWall);
                   if (emptyTiles.length === 0) return showNotif("Non ci sono caselle libere da conquistare!");
                   
                   const toClaim = emptyTiles.sort(() => 0.5 - Math.random()).slice(0, 2);
                   const updates = {};
-                  toClaim.forEach(k => {
-                      currentBoard[k] = { ...currentBoard[k], owner: user.uid, item: null };
-                      updates[`board.${k}`] = currentBoard[k];
-                  });
+                  toClaim.forEach(k => { currentBoard[k] = { ...currentBoard[k], owner: user.uid, item: null }; updates[`board.${k}`] = currentBoard[k]; });
                   updates[`players.${user.uid}.tiles`] = Object.values(currentBoard).filter(v => v?.owner === user.uid).length;
                   updates.globalAction = { msg: `🏳️ ${me?.n} usa Conquista e ottiene territori liberi!`, id: Date.now() };
                   
-                  await updateDoc(boardRef, updates);
-                  consumeItem(slotIdx);
-                  showNotif("Hai conquistato nuovi territori!");
+                  await updateDoc(boardRef, updates); consumeItem(slotIdx); showNotif("Hai conquistato nuovi territori!");
               }
               else if (itemId === 'curse' || itemId === 'terremoto' || itemId === 'stregoneria') {
-                  setTargetAction(itemId);
-                  setUsingItemSlot(slotIdx);
+                  setTargetAction(itemId); setUsingItemSlot(slotIdx);
                   showNotif(`Seleziona un bersaglio dalla classifica per ${ITEMS.find(i=>i.id===itemId)?.n || ''}`);
               } 
-              else {
-                  showNotif("Non puoi usare questo oggetto ora.");
-              }
+              else { showNotif("Non puoi usare questo oggetto ora."); }
           };
 
           const applyTargetItem = async (targetId) => {
               if (targetId === user.uid) return showNotif("Non puoi selezionare te stesso!");
-              const updates = {};
-              const targetName = room.players[targetId]?.n;
+              const updates = {}; const targetName = room.players[targetId]?.n;
               
               if (targetAction === 'curse') {
                   updates[`players.${targetId}.modifier`] = -2;
                   updates.globalAction = { msg: `💀 ${me?.n} usa Maledizione su ${targetName}!`, id: Date.now() };
-                  consumeItem(usingItemSlot);
-                  showNotif(`Maledizione lanciata su ${targetName}!`);
+                  consumeItem(usingItemSlot); showNotif(`Maledizione lanciata su ${targetName}!`);
               } 
               else if (targetAction === 'terremoto') {
                   let currentBoard = { ...(room.board || {}) };
                   const targetTiles = Object.keys(currentBoard).filter(k => currentBoard[k]?.owner === targetId && !currentBoard[k]?.isSpawn);
-                  
-                  if (targetTiles.length === 0) { setTargetAction(null); return showNotif("Il bersaglio non ha territori distruttibili!"); }
+                  if (targetTiles.length === 0) { setTargetAction(null); return showNotif("Questo giocatore non ha più territori!"); }
                   
                   const toDestroy = targetTiles.sort(() => 0.5 - Math.random()).slice(0, 2);
-                  toDestroy.forEach(k => {
-                      currentBoard[k] = { ...currentBoard[k], owner: null, item: null }; 
-                      updates[`board.${k}`] = currentBoard[k];
-                  });
+                  toDestroy.forEach(k => { currentBoard[k] = { ...currentBoard[k], owner: null, item: null }; updates[`board.${k}`] = currentBoard[k]; });
                   updates[`players.${targetId}.tiles`] = Object.values(currentBoard).filter(v => v?.owner === targetId).length;
                   updates.globalAction = { msg: `🌋 ${me?.n} scatena un Terremoto sui territori di ${targetName}!`, id: Date.now() };
                   
-                  consumeItem(usingItemSlot);
-                  showNotif(`Hai distrutto le caselle di ${targetName}!`);
+                  consumeItem(usingItemSlot); showNotif(`Hai distrutto le caselle di ${targetName}!`);
               }
               else if (targetAction === 'stregoneria') {
                   updates[`players.${targetId}.hasStregoneria`] = true;
                   updates.globalAction = { msg: `🔮 ${me?.n} lancia Stregoneria su ${targetName}!`, id: Date.now() };
-                  consumeItem(usingItemSlot);
-                  showNotif(`Stregoneria lanciata su ${targetName}!`);
+                  consumeItem(usingItemSlot); showNotif(`Stregoneria lanciata su ${targetName}!`);
               }
-              
-              await updateDoc(boardRef, updates);
-              setTargetAction(null);
+              await updateDoc(boardRef, updates); setTargetAction(null);
           };
 
           const consumeItem = async (slotIdx) => {
-              const newInv = [...(activePlayer?.inventory || [])];
-              newInv.splice(slotIdx, 1);
+              const newInv = [...(activePlayer?.inventory || [])]; newInv.splice(slotIdx, 1);
               await updateDoc(boardRef, { [`players.${user.uid}.inventory`]: newInv });
           };
 
           const toggleBotSpeed = async () => {
-              if(!isHost) return;
-              const newSpeed = room.config.botSpeed === 2 ? 1 : 2;
-              await updateDoc(boardRef, { 'config.botSpeed': newSpeed });
-              showNotif(`Velocità Bot: x${newSpeed}`);
+              if(!isHost) return; const newSpeed = room.config.botSpeed === 2 ? 1 : 2;
+              await updateDoc(boardRef, { 'config.botSpeed': newSpeed }); showNotif(`Velocità Bot: x${newSpeed}`);
           };
 
-          const playableTiles = useMemo(() => isMyTurn && room.actionState === 'moving' && !isGameEnded ? getPlayableTiles(user.uid, room.board || {}, boardSize, room.config.invasionMode) : [], [isMyTurn, room.actionState, room.board, boardSize, user.uid, isGameEnded, room.config.invasionMode]);
+          const sourceForPlayable = room.currentEvent === 'tempesta' ? matchPlayerOrder[(matchPlayerOrder.indexOf(user.uid) + 1) % matchPlayerOrder.length] : user.uid;
+          const playableTiles = useMemo(() => isMyTurn && room.actionState === 'moving' && !isGameEnded ? getPlayableTiles(sourceForPlayable, room.board || {}, boardSize, room.config.invasionMode, user.uid) : [], [isMyTurn, room.actionState, room.board, boardSize, user.uid, isGameEnded, room.config.invasionMode, room.currentEvent, sourceForPlayable]);
           const leaderboard = matchPlayerOrder.map(id => room.players[id]).filter(Boolean).sort((a, b) => (b.tiles||0) - (a.tiles||0));
           const iconSizeClass = boardSize > 14 ? 'text-xs md:text-sm' : (boardSize > 10 ? 'text-base md:text-lg' : 'text-xl md:text-3xl');
 
           const isTournament = room.status === 'match_finished';
           let winnersCount = 1;
           if (isTournament) {
-              winnersCount = matchPlayerOrder.length >= 8 ? 4 : 2;
-              if (room.tournament?.currentPhase === room.tournament?.phases?.length - 1) winnersCount = 1;
+              if (matchPlayerOrder.length >= 8) winnersCount = 4;
+              else if (matchPlayerOrder.length === 4) winnersCount = 2;
+              else winnersCount = 1;
           }
-          const topPlayers = leaderboard.slice(0, winnersCount);
-          const eliminatedPlayers = leaderboard.slice(winnersCount);
-          const topPlayerIds = topPlayers.map(p => p.id);
+          const topPlayers = leaderboard.slice(0, winnersCount); const eliminatedPlayers = leaderboard.slice(winnersCount); const topPlayerIds = topPlayers.map(p => p.id);
+
+          const activeEventObj = room.currentEvent ? EVENT_TYPES.find(e => e.id === room.currentEvent) : null;
 
           return (
             <div className="h-[100dvh] flex flex-col bg-slate-900 text-slate-100 overflow-hidden relative">
@@ -1475,10 +1289,7 @@
               {isGameEnded && showResultsModal && (
                   <div className="absolute inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-md">
                       <div className="bg-slate-800 p-6 md:p-10 rounded-3xl border border-slate-600 shadow-2xl max-w-4xl w-full max-h-full overflow-y-auto flex flex-col items-center">
-                          <h1 className="text-4xl md:text-5xl font-black text-center mb-8 text-transparent bg-clip-text bg-gradient-to-r from-yellow-400 to-yellow-600">
-                              {isTournament ? 'RISULTATI DEL MATCH' : 'FINE PARTITA!'}
-                          </h1>
-
+                          <h1 className="text-4xl md:text-5xl font-black text-center mb-8 text-transparent bg-clip-text bg-gradient-to-r from-yellow-400 to-yellow-600">{isTournament ? 'RISULTATI DEL MATCH' : 'FINE PARTITA!'}</h1>
                           {isTournament ? (
                               <div className="flex flex-col md:flex-row gap-6 w-full">
                                   <div className="flex-1 bg-emerald-900/20 p-6 rounded-2xl border border-emerald-500/30">
@@ -1490,16 +1301,12 @@
                                                   <div key={p.id} className="flex items-center gap-4 bg-emerald-900/40 p-3 rounded-xl border border-emerald-500/50 shadow-sm">
                                                       <div className="font-bold text-emerald-500 w-4">{idx+1}</div>
                                                       <img src={CHARACTERS.find(c=>c.id===p.charId)?.i} className="w-12 h-12 rounded-full border-2 object-cover shrink-0" style={{borderColor: p.color}} />
-                                                      <div className="flex-1 min-w-0">
-                                                          <div className="font-bold truncate" style={{color: p.color}}>{p.n}</div>
-                                                          <div className="text-xs text-emerald-200/70">{p.tiles} territori</div>
-                                                      </div>
+                                                      <div className="flex-1 min-w-0"><div className="font-bold truncate" style={{color: p.color}}>{p.n}</div><div className="text-xs text-emerald-200/70">{p.tiles} territori</div></div>
                                                   </div>
                                               )
                                           })}
                                       </div>
                                   </div>
-                                  
                                   {eliminatedPlayers.length > 0 && (
                                       <div className="flex-1 bg-red-900/20 p-6 rounded-2xl border border-red-500/30">
                                           <h3 className="text-xl text-red-400 font-black mb-4 text-center tracking-wide">ELIMINATI</h3>
@@ -1510,10 +1317,7 @@
                                                       <div key={p.id} className="flex items-center gap-4 bg-red-900/40 p-3 rounded-xl border border-red-500/30 grayscale">
                                                           <div className="font-bold text-red-500/50 w-4">{idx+1+winnersCount}</div>
                                                           <img src={CHARACTERS.find(c=>c.id===p.charId)?.i} className="w-12 h-12 rounded-full border-2 object-cover shrink-0 border-slate-600" />
-                                                          <div className="flex-1 min-w-0">
-                                                              <div className="font-bold truncate text-slate-400">{p.n}</div>
-                                                              <div className="text-xs text-red-200/50">{p.tiles} territori</div>
-                                                          </div>
+                                                          <div className="flex-1 min-w-0"><div className="font-bold truncate text-slate-400">{p.n}</div><div className="text-xs text-red-200/50">{p.tiles} territori</div></div>
                                                       </div>
                                                   )
                                               })}
@@ -1531,10 +1335,7 @@
                                               <div key={p.id} className={`flex items-center gap-4 bg-slate-800 p-3 md:p-4 rounded-xl border-2 transition-all ${idx === 0 ? 'border-yellow-400 shadow-[0_0_20px_rgba(250,204,21,0.4)] scale-105' : 'border-slate-700'}`}>
                                                   <div className={`font-black w-8 text-center ${idx === 0 ? 'text-yellow-400 text-3xl' : 'text-slate-500 text-xl'}`}>{idx+1}°</div>
                                                   <img src={CHARACTERS.find(c=>c.id===p.charId)?.i} className={`w-14 h-14 rounded-full object-cover shrink-0 ${idx === 0 ? 'border-4 border-yellow-400' : 'border-2 border-slate-600'}`} style={idx !== 0 ? {borderColor: p.color} : {}} />
-                                                  <div className="flex-1 min-w-0 text-left">
-                                                      <div className="font-bold truncate text-xl" style={{color: p.color}}>{p.n}</div>
-                                                      <div className="text-sm text-slate-400">{p.tiles} territori conquistati</div>
-                                                  </div>
+                                                  <div className="flex-1 min-w-0 text-left"><div className="font-bold truncate text-xl" style={{color: p.color}}>{p.n}</div><div className="text-sm text-slate-400">{p.tiles} territori conquistati</div></div>
                                                   {idx === 0 && <div className="text-4xl animate-bounce">🏆</div>}
                                               </div>
                                           )
@@ -1542,23 +1343,9 @@
                                   </div>
                               </div>
                           )}
-
                           <div className="mt-10 flex flex-col sm:flex-row justify-center items-center gap-4 w-full">
-                              <button 
-                                  onClick={() => setShowResultsModal(false)} 
-                                  className="w-full sm:w-auto px-6 py-3 rounded-xl font-bold bg-slate-700 hover:bg-slate-600 transition-colors border border-slate-500"
-                              >
-                                  👁️ Osserva Mappa Finale
-                              </button>
-                              
-                              {isHost && (
-                                  <button 
-                                      onClick={() => isTournament ? handleTournamentMatchEnd(room, topPlayerIds) : updateDoc(boardRef, {status: 'lobby'})} 
-                                      className="w-full sm:w-auto px-8 py-3 rounded-xl font-black bg-orange-600 hover:bg-orange-500 transition-colors shadow-lg"
-                                  >
-                                      {isTournament ? 'Ritorna al Tabellone Torneo' : 'Torna alla Lobby'}
-                                  </button>
-                              )}
+                              <button onClick={() => setShowResultsModal(false)} className="w-full sm:w-auto px-6 py-3 rounded-xl font-bold bg-slate-700 hover:bg-slate-600 transition-colors border border-slate-500">👁️ Osserva Mappa Finale</button>
+                              {isHost && ( <button onClick={() => isTournament ? handleTournamentMatchEnd(room, topPlayerIds) : updateDoc(boardRef, {status: 'lobby'})} className="w-full sm:w-auto px-8 py-3 rounded-xl font-black bg-orange-600 hover:bg-orange-500 transition-colors shadow-lg">{isTournament ? 'Ritorna al Tabellone Torneo' : 'Torna alla Lobby'}</button> )}
                               {!isHost && isTournament && <span className="text-slate-400 animate-pulse text-sm">In attesa dell'Host...</span>}
                           </div>
                       </div>
@@ -1566,30 +1353,25 @@
               )}
 
               {isGameEnded && !showResultsModal && (
-                  <button 
-                      onClick={() => setShowResultsModal(true)} 
-                      className="absolute bottom-6 left-1/2 transform -translate-x-1/2 z-40 bg-slate-800/90 backdrop-blur px-8 py-4 rounded-full font-black text-lg shadow-[0_0_20px_rgba(0,0,0,0.8)] border-2 border-indigo-500 text-white hover:bg-slate-700 transition-all hover:scale-105"
-                  >
-                      🔙 TORNA AI RISULTATI
-                  </button>
+                  <button onClick={() => setShowResultsModal(true)} className="absolute bottom-6 left-1/2 transform -translate-x-1/2 z-40 bg-slate-800/90 backdrop-blur px-8 py-4 rounded-full font-black text-lg shadow-[0_0_20px_rgba(0,0,0,0.8)] border-2 border-indigo-500 text-white hover:bg-slate-700 transition-all hover:scale-105">🔙 TORNA AI RISULTATI</button>
               )}
 
               <div className="bg-slate-800 p-3 shadow-md flex justify-between items-center z-10 border-b border-slate-700 shrink-0">
-                  <div className="flex items-center gap-4">
-                      <div className="text-xl font-bold bg-slate-700 px-4 py-2 rounded-lg">
-                          {isGameEnded ? 'FINE PARTITA' : `Round ${room.round}/${room.config.maxRounds}`}
+                  <div className="flex flex-col items-start gap-1">
+                      <div className="flex items-center gap-4">
+                          <div className="text-xl font-bold bg-slate-700 px-4 py-2 rounded-lg">{isGameEnded ? 'FINE PARTITA' : `Round ${room.round}/${room.config.maxRounds}`}</div>
+                          {room.config.mode === 'tournament' && ( <div className="text-orange-400 font-bold bg-slate-900 px-3 py-1 rounded border border-orange-500/50 hidden sm:block">TORNEO</div> )}
                       </div>
-                      {room.config.mode === 'tournament' && (
-                          <div className="text-orange-400 font-bold bg-slate-900 px-3 py-1 rounded border border-orange-500/50">TORNEO</div>
+                      {activeEventObj && !isGameEnded && (
+                          <div className="text-xs font-bold text-white bg-purple-700 px-3 py-1 rounded-full flex items-center gap-2 event-active mt-1">
+                              <span>{activeEventObj.i}</span> {activeEventObj.n} Attivo!
+                          </div>
                       )}
                   </div>
                   
                   <div className="flex gap-2 overflow-x-auto mx-4 scrollbar-hide">
                       {matchPlayerOrder.map((pid, idx) => {
-                          const p = room.players[pid];
-                          if (!p) return null;
-                          const c = CHARACTERS.find(x => x.id === p.charId);
-                          const isActive = idx === room.turnIndex && !isGameEnded;
+                          const p = room.players[pid]; if (!p) return null; const c = CHARACTERS.find(x => x.id === p.charId); const isActive = idx === room.turnIndex && !isGameEnded;
                           return (
                               <div key={pid} className={`relative transition-all duration-300 ${isActive ? 'transform scale-110 z-10' : 'opacity-60 scale-90'}`}>
                                   <img src={c?.i} className={`w-14 h-14 rounded-full border-4 object-cover ${isActive ? 'animate-pulse shadow-[0_0_15px_currentColor]' : ''}`} style={{borderColor: p.color, color: p.color}} />
@@ -1601,9 +1383,7 @@
                   </div>
                   <div className="text-right flex flex-col items-end">
                      <span className="text-sm text-slate-400">{isGameEnded ? 'Vincitore:' : 'Tocca a:'}</span>
-                     <span className="text-xl font-black" style={{color: isGameEnded ? leaderboard[0]?.color : activePlayer?.color}}>
-                         {isGameEnded ? leaderboard[0]?.n : `${activePlayer?.n || ''} ${activePlayer?.isBot ? '(BOT)' : ''}`}
-                     </span>
+                     <span className="text-xl font-black" style={{color: isGameEnded ? leaderboard[0]?.color : activePlayer?.color}}>{isGameEnded ? leaderboard[0]?.n : `${activePlayer?.n || ''} ${activePlayer?.isBot ? '(BOT)' : ''}`}</span>
                   </div>
               </div>
 
@@ -1613,17 +1393,13 @@
                       {targetAction !== null && !isGameEnded && (
                           <div className="absolute inset-0 z-20 bg-black/50 flex flex-col items-center justify-center">
                              <h2 className="text-3xl font-bold text-white animate-pulse text-center p-4">Seleziona il bersaglio in classifica! 👉</h2>
-                             <button onClick={() => setTargetAction(null)} className="mt-4 bg-slate-800 px-6 py-3 rounded-full font-bold">Annulla Mossa</button>
+                             <button onClick={() => setTargetAction(null)} className="mt-4 bg-slate-800 px-6 py-3 rounded-full font-bold border border-slate-500 hover:bg-slate-700">Annulla Mossa</button>
                           </div>
                       )}
 
                       <div 
                           className={`bg-slate-700/50 rounded-xl shadow-2xl grid transition-all duration-700 ${isGameEnded && !showResultsModal ? 'scale-100 shadow-[0_0_30px_rgba(255,255,255,0.1)]' : ''}`}
-                          style={{
-                              maxHeight: '100%', maxWidth: '100%', width: 'min(100%, 100vh)', height: 'auto', aspectRatio: '1 / 1',
-                              gridTemplateColumns: `repeat(${boardSize}, minmax(0, 1fr))`, gridTemplateRows: `repeat(${boardSize}, minmax(0, 1fr))`,
-                              gap: boardSize > 12 ? '1px' : '2px', padding: boardSize > 12 ? '1px' : '2px'
-                          }}
+                          style={{ maxHeight: '100%', maxWidth: '100%', width: 'min(100%, 100vh)', height: 'auto', aspectRatio: '1 / 1', gridTemplateColumns: `repeat(${boardSize}, minmax(0, 1fr))`, gridTemplateRows: `repeat(${boardSize}, minmax(0, 1fr))`, gap: boardSize > 12 ? '1px' : '2px', padding: boardSize > 12 ? '1px' : '2px' }}
                       >
                           {Array.from({length: boardSize * boardSize}).map((_, i) => {
                               const x = i % boardSize; const y = Math.floor(i / boardSize); const key = `${x},${y}`;
@@ -1632,7 +1408,7 @@
                               if (!cell) return <div key={key} className="bg-transparent" />;
                               const isPlayable = playableTiles.includes(key);
                               const ownerPlayer = cell.owner ? room.players[cell.owner] : null;
-                              const ownerColor = ownerPlayer ? ownerPlayer.color : '#1e293b'; 
+                              const ownerColor = ownerPlayer ? ownerPlayer.color : (cell.isWall ? '#0f172a' : '#1e293b'); 
                               const ownerCharId = ownerPlayer ? ownerPlayer.charId : null;
                               const ownerCharImg = ownerCharId ? CHARACTERS.find(c => c.id === ownerCharId)?.i : null;
 
@@ -1641,18 +1417,21 @@
                                   const overlayColor = ownerColor.length === 7 ? ownerColor + '99' : ownerColor;
                                   cellStyle = { backgroundImage: `linear-gradient(${overlayColor}, ${overlayColor}), url(${ownerCharImg})`, backgroundSize: 'cover', backgroundPosition: 'center', boxShadow: `inset 0 0 0 1px rgba(0,0,0,0.3)` };
                               }
+                              if (cell.isWall) { cellStyle = { backgroundColor: '#0f172a', backgroundImage: 'radial-gradient(#1e293b 10%, transparent 20%), radial-gradient(#1e293b 10%, transparent 20%)', backgroundSize: '10px 10px', backgroundPosition: '0 0, 5px 5px' }; }
 
                               return (
                                   <div 
                                       key={key} onClick={() => clickTile(key)}
                                       className={`relative transition-all duration-200 flex items-center justify-center overflow-hidden rounded-sm w-full h-full aspect-square
                                           ${isPlayable ? 'cursor-pointer animate-pulse z-10 scale-[1.03] ring-2 ring-white/70 shadow-xl' : ''}
-                                          ${!cell.owner && !isPlayable ? 'opacity-80 hover:opacity-100' : ''}
+                                          ${!cell.owner && !isPlayable && !cell.isWall ? 'opacity-80 hover:opacity-100' : ''}
+                                          ${cell.isWall ? 'border border-slate-900 shadow-inner' : ''}
                                       `}
                                       style={cellStyle}
                                   >
                                       {cell.item && <span className={`${iconSizeClass} drop-shadow-[0_2px_2px_rgba(0,0,0,0.8)] z-0 pointer-events-none`}>{ITEMS.find(i => i.id === cell.item)?.icon}</span>}
-                                      {cell.isSpawn && <span className="absolute bottom-0.5 right-0.5 text-[10px] opacity-80 drop-shadow-md pointer-events-none">🏠</span>}
+                                      {cell.isSpawn && <span className="absolute bottom-0.5 right-0.5 text-[10px] md:text-sm opacity-80 drop-shadow-[0_1px_1px_rgba(0,0,0,0.8)] pointer-events-none">🏠</span>}
+                                      {cell.isWall && <span className={`${iconSizeClass} opacity-50 drop-shadow-md pointer-events-none`}>☄️</span>}
                                       {isPlayable && <div className="absolute inset-0 bg-white/20 rounded-sm hover:bg-white/40 pointer-events-none"></div>}
                                   </div>
                               );
@@ -1706,10 +1485,8 @@
                           <div className="p-4 bg-slate-900 border-t border-slate-700 shrink-0">
                               <h4 className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-2">Pannello Controllo</h4>
                               
-                              {!isPlayingThisMatch ? (
-                                  <div className="text-center py-4 text-slate-400 italic bg-slate-800 rounded-xl">Spettatore 🍿</div>
-                              ) : !isMyTurn ? (
-                                  <div className="text-center py-4 text-slate-500 font-bold bg-slate-800 rounded-xl">In attesa...</div>
+                              {!isPlayingThisMatch ? ( <div className="text-center py-4 text-slate-400 italic bg-slate-800 rounded-xl">Spettatore 🍿</div>
+                              ) : !isMyTurn ? ( <div className="text-center py-4 text-slate-500 font-bold bg-slate-800 rounded-xl">In attesa...</div>
                               ) : (
                                   <div className="space-y-3">
                                       {room.actionState === 'rolling' && (
@@ -1729,35 +1506,18 @@
                                           <div className="text-xs text-slate-400 mb-2">Inventario (Max 2)</div>
                                           <div className="flex gap-2">
                                               {[0, 1].map(slot => {
-                                                  const itemId = me?.inventory?.[slot];
-                                                  const item = itemId ? ITEMS.find(i => i.id === itemId) : null;
+                                                  const itemId = me?.inventory?.[slot]; const item = itemId ? ITEMS.find(i => i.id === itemId) : null;
                                                   return (
                                                       <button 
                                                           key={slot}
-                                                          disabled={!item || (room.actionState === 'rolling' && item?.id === 'jackpot')} 
-                                                          onClick={(e) => {
-                                                              if (isLongPress.current) { e.preventDefault(); isLongPress.current = false; return; }
-                                                              useItem(slot, itemId);
-                                                          }}
+                                                          disabled={!item || (room.actionState === 'rolling' && item?.id === 'jackpot') || room.currentEvent === 'carestia'} 
+                                                          onClick={(e) => { if (isLongPress.current) { e.preventDefault(); isLongPress.current = false; return; } useItem(slot, itemId); }}
                                                           onContextMenu={(e) => e.preventDefault()}
-                                                          onTouchStart={() => {
-                                                              isLongPress.current = false;
-                                                              touchTimer.current = setTimeout(() => {
-                                                                  isLongPress.current = true;
-                                                                  setShowItemDesc(slot);
-                                                              }, 400);
-                                                          }}
-                                                          onTouchEnd={(e) => {
-                                                              clearTimeout(touchTimer.current);
-                                                              if (isLongPress.current) e.preventDefault();
-                                                              setShowItemDesc(null);
-                                                          }}
+                                                          onTouchStart={() => { isLongPress.current = false; touchTimer.current = setTimeout(() => { isLongPress.current = true; setShowItemDesc(slot); }, 400); }}
+                                                          onTouchEnd={(e) => { clearTimeout(touchTimer.current); if (isLongPress.current) e.preventDefault(); setShowItemDesc(null); }}
                                                           onTouchMove={() => { clearTimeout(touchTimer.current); setShowItemDesc(null); }}
-                                                          onMouseLeave={() => setShowItemDesc(null)}
-                                                          onMouseEnter={() => setShowItemDesc(slot)}
-                                                          className={`flex-1 h-14 rounded-lg flex items-center justify-center text-2xl border relative
-                                                              ${item ? 'bg-slate-700 border-slate-500 hover:border-white cursor-pointer' : 'bg-slate-800/50 border-slate-700 border-dashed cursor-not-allowed'}
-                                                          `}
+                                                          onMouseLeave={() => setShowItemDesc(null)} onMouseEnter={() => setShowItemDesc(slot)}
+                                                          className={`flex-1 h-14 rounded-lg flex items-center justify-center text-2xl border relative ${item && room.currentEvent !== 'carestia' ? 'bg-slate-700 border-slate-500 hover:border-white cursor-pointer' : 'bg-slate-800/50 border-slate-700 border-dashed cursor-not-allowed'} `}
                                                       >
                                                           {item ? item.icon : ''}
                                                           {showItemDesc === slot && item && (
