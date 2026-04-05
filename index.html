@@ -218,7 +218,7 @@
         // --- FUNZIONI DI UTILITÀ ---
         const getCollectionRef = () => collection(db, 'artifacts', appId, 'public', 'data', 'rooms');
 
-        const generateBoard = (size, shape) => {
+        const generateBoard = (size, shape, spawnRate = 0.08) => {
           const board = {};
           const center = (size - 1) / 2;
           for (let y = 0; y < size; y++) {
@@ -233,7 +233,7 @@
                 const dist = Math.abs(x - center) + Math.abs(y - center);
                 valid = dist <= size / 2 + 0.5;
               }
-              if (valid) board[`${x},${y}`] = { owner: null, item: Math.random() < 0.08 ? ITEMS[Math.floor(Math.random() * ITEMS.length)].id : null, isWall: false };
+              if (valid) board[`${x},${y}`] = { owner: null, item: Math.random() < spawnRate ? ITEMS[Math.floor(Math.random() * ITEMS.length)].id : null, isWall: false };
             }
           }
           return board;
@@ -627,7 +627,8 @@
                 });
 
             } else {
-                const board = generateBoard(room.config.size, room.config.shape);
+                const spawnRate = room.config.mode === 'elimination' ? 0.15 : 0.08;
+                const board = generateBoard(room.config.size, room.config.shape, spawnRate);
                 const spawns = getSpawnPoints(room.config.size, room.playerOrder.length, board);
                 
                 const updates = { 
@@ -1220,7 +1221,7 @@
                                  updates[`players.${loserId}.inventory`] = [];
                                  updates.eliminationRank = [loserId, ...(updates.eliminationRank || room.eliminationRank || [])];
                                  
-                                 // Distruzione a catena del territorio
+                                 // Distruzione a catena del territorio COMPLETA (inclusa la base)
                                  const loserTiles = Object.keys(currentBoard).filter(k => currentBoard[k]?.owner === loserId).sort(() => 0.5 - Math.random());
                                  loserTiles.forEach((k, i) => {
                                      currentBoard[k] = { ...currentBoard[k], owner: null, item: null, isSpawn: false, explodedAt: Date.now(), explodeDelay: i * 100, oldColor: room.players[loserId].color };
@@ -1268,7 +1269,7 @@
                                  meteors.forEach(k => { currentBoard[k] = { ...currentBoard[k], owner: null, item: null, isWall: true }; updates[`board.${k}`] = currentBoard[k]; });
                              }
                          }
-                         else if (!eliminatedThisTurn && isHost && Math.random() < 0.08) {
+                         else if (!eliminatedThisTurn && isHost && Math.random() < (room.config.mode === 'elimination' ? 0.15 : 0.08)) {
                              const emptyTiles = Object.keys(currentBoard).filter(k => currentBoard[k] && !currentBoard[k].owner && !currentBoard[k].item && !currentBoard[k].isWall);
                              if (emptyTiles.length > 0) {
                                  const randomTile = emptyTiles[Math.floor(Math.random() * emptyTiles.length)];
