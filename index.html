@@ -34,9 +34,7 @@
             30% { transform: scale(1.2) translateY(-10px) rotate(10deg); opacity: 0.9; filter: brightness(1.5); z-index: 50; }
             100% { transform: scale(0) translateY(20px) rotate(-15deg); opacity: 0; filter: brightness(0); }
         }
-        .explode-anim {
-            animation: domino-explode 0.8s ease-in forwards;
-        }
+        .explode-anim { animation: domino-explode 0.8s ease-in forwards; }
     </style>
 </head>
 <body class="bg-slate-900 text-slate-100 no-select overflow-hidden">
@@ -205,6 +203,14 @@
           { id: 'stregoneria', n: 'Stregoneria', icon: '🔮', desc: 'Il prossimo lancio del bersaglio gli toglierà caselle e salterà il turno.' }
         ];
 
+        const INF_ITEMS = [
+          { id: 'teletrasporto', n: 'Teletrasporto', icon: '🌀', desc: 'Teletrasportati vicino a un giocatore.' },
+          { id: 'turbo_inf', n: 'Turbo Infetto', icon: '⚡', desc: '+3 mosse extra.' },
+          { id: 'stordimento', n: 'Stordimento', icon: '💫', desc: 'Stordisci per 1 turno gli infetti.' },
+          { id: 'scudo', n: 'Scudo', icon: '🛡️', desc: 'Invulnerabile agli infetti per 2 turni.' },
+          { id: 'builder', n: 'Builder', icon: '🧱', desc: 'Crea 2 blocchi invalicabili permanenti.' }
+        ];
+
         const EVENT_TYPES = [
             { id: 'tempesta', n: 'Tempesta Caotica', i: '🌪️', desc: 'In questo round ti espandi partendo dai territori del giocatore successivo!' },
             { id: 'robin_hood', n: 'Legge di Robin Hood', i: '🏹', desc: 'Il primo in classifica ha perso 3 caselle, l\'ultimo ne ha ricevute 3 in dono!' },
@@ -218,9 +224,50 @@
         // --- FUNZIONI DI UTILITÀ ---
         const getCollectionRef = () => collection(db, 'artifacts', appId, 'public', 'data', 'rooms');
 
-        const generateBoard = (size, shape, spawnRate = 0.08) => {
+        const getBalancedEmptyTile = (boardObj) => {
+            const emptyTiles = Object.keys(boardObj).filter(k => boardObj[k] && !boardObj[k].owner && !boardObj[k].item && !boardObj[k].isWall && !boardObj[k].isSpawn);
+            if (emptyTiles.length === 0) return null;
+            
+            const itemTiles = Object.keys(boardObj).filter(k => boardObj[k]?.item);
+            const playerTiles = Object.keys(boardObj).filter(k => boardObj[k]?.owner);
+            
+            if (itemTiles.length === 0 && playerTiles.length === 0) {
+                return emptyTiles[Math.floor(Math.random() * emptyTiles.length)];
+            }
+            
+            const scores = emptyTiles.map(tile => {
+                const [tx, ty] = tile.split(',').map(Number);
+                let minDistItem = Infinity; let minDistPlayer = Infinity;
+                
+                itemTiles.forEach(it => {
+                    const [ix, iy] = it.split(',').map(Number);
+                    const d = Math.abs(tx - ix) + Math.abs(ty - iy);
+                    if (d < minDistItem) minDistItem = d;
+                });
+                
+                playerTiles.forEach(pt => {
+                    const [px, py] = pt.split(',').map(Number);
+                    const d = Math.abs(tx - px) + Math.abs(ty - py);
+                    if (d < minDistPlayer) minDistPlayer = d;
+                });
+                
+                if (minDistItem === Infinity) minDistItem = 0; if (minDistPlayer === Infinity) minDistPlayer = 0;
+                
+                const score = (minDistItem * 1.5) + (minDistPlayer * 1.0);
+                return { tile, score };
+            });
+            
+            scores.sort((a, b) => b.score - a.score);
+            const topCount = Math.max(1, Math.floor(scores.length * 0.20)); 
+            const topTiles = scores.slice(0, topCount);
+            return topTiles[Math.floor(Math.random() * topTiles.length)].tile;
+        };
+
+        const generateBoard = (size, shape, isModeInfezione, numPlayers) => {
           const board = {};
           const center = (size - 1) / 2;
+          const validTiles = [];
+          
           for (let y = 0; y < size; y++) {
             for (let x = 0; x < size; x++) {
               let valid = false;
@@ -233,9 +280,27 @@
                 const dist = Math.abs(x - center) + Math.abs(y - center);
                 valid = dist <= size / 2 + 0.5;
               }
-              if (valid) board[`${x},${y}`] = { owner: null, item: Math.random() < spawnRate ? ITEMS[Math.floor(Math.random() * ITEMS.length)].id : null, isWall: false };
+              if (valid) {
+                  const key = `${x},${y}`;
+                  board[key] = { owner: null, item: null, isWall: false, isSpawn: false };
+                  validTiles.push(key);
+              }
             }
           }
+          
+          let numItemsToSpawn = 0;
+          if (isModeInfezione) {
+              numItemsToSpawn = Math.min(numPlayers <= 4 ? 3 : (numPlayers <= 8 ? 7 : 15), validTiles.length);
+          } else {
+              numItemsToSpawn = Math.floor(validTiles.length * 0.08);
+          }
+
+          const activeItemsArray = isModeInfezione ? INF_ITEMS : ITEMS;
+          for(let i = 0; i < numItemsToSpawn; i++) {
+              const tile = getBalancedEmptyTile(board);
+              if(tile) board[tile].item = activeItemsArray[Math.floor(Math.random() * activeItemsArray.length)].id;
+          }
+          
           return board;
         };
 
@@ -432,7 +497,7 @@
               if(room?.globalAction && room.globalAction.id !== window.lastGlobalActionId) {
                   window.lastGlobalActionId = room.globalAction.id;
                   showGlobalNotif(room.globalAction.msg);
-                  if (room.globalAction.msg.includes('🚨 METEO:') || room.globalAction.msg.includes('☠️ ELIMINAZIONE')) playEventSound();
+                  if (room.globalAction.msg.includes('🚨 METEO:') || room.globalAction.msg.includes('☠️ ELIMINAZIONE') || room.globalAction.msg.includes('🧟')) playEventSound();
                   else playActionSound();
               }
           }, [room?.globalAction]);
@@ -473,8 +538,8 @@
             const roomData = {
               status: 'lobby', hostId: user.uid,
               config: { mode: 'standard', players: 4, tournamentSize: 8, size: 10, shape: 'square', maxRounds: 20, invasionMode: false, botSpeed: 1, eventsEnabled: false },
-              players: { [user.uid]: { id: user.uid, n: playerName.trim(), isBot: false, color: hostColor, charId: null, ready: false, hasStregoneria: false, isEliminated: false } },
-              playerOrder: [user.uid], round: 1, turnIndex: 0, currentEvent: null, messages: []
+              players: { [user.uid]: { id: user.uid, n: playerName.trim(), isBot: false, color: hostColor, charId: null, ready: false, hasStregoneria: false, isEliminated: false, isInfected: false, pos: null, shieldUntil: 0, stunnedUntil: 0 } },
+              playerOrder: [user.uid], round: 1, turnIndex: 0, currentEvent: null, messages: [], eliminationRank: []
             };
             await setDoc(doc(getCollectionRef(), newRoomId), roomData);
             localStorage.setItem('tw_room_id', newRoomId);
@@ -493,12 +558,12 @@
               if (snap.exists()) {
                 const data = snap.data();
                 if (data.status !== 'lobby') setError("Partita già iniziata!");
-                else if ((data.config.mode === 'standard' || data.config.mode === 'elimination') && data.playerOrder.length >= data.config.players) setError("Stanza piena!");
+                else if ((data.config.mode === 'standard' || data.config.mode === 'elimination' || data.config.mode === 'infezione') && data.playerOrder.length >= data.config.players) setError("Stanza piena!");
                 else if (data.config.mode === 'tournament' && data.playerOrder.length >= data.config.tournamentSize) setError("Torneo pieno!");
                 else if (!data.players[user.uid]) {
                   const newColor = '#' + Math.floor(Math.random()*16777215).toString(16).padStart(6, '0');
                   await updateDoc(roomRef, {
-                    [`players.${user.uid}`]: { id: user.uid, n: playerName.trim(), isBot: false, color: newColor, charId: null, ready: false, hasStregoneria: false, isEliminated: false },
+                    [`players.${user.uid}`]: { id: user.uid, n: playerName.trim(), isBot: false, color: newColor, charId: null, ready: false, hasStregoneria: false, isEliminated: false, isInfected: false, pos: null, shieldUntil: 0, stunnedUntil: 0 },
                     playerOrder: [...data.playerOrder, user.uid]
                   });
                   localStorage.setItem('tw_room_id', code);
@@ -582,7 +647,7 @@
             const char = available[Math.floor(Math.random() * available.length)];
 
             await updateDoc(doc(getCollectionRef(), room.id), {
-              [`players.${botId}`]: { id: botId, n: `[BOT] ${char.n}`, isBot: true, color, charId: char.id, ready: true, hasStregoneria: false, isEliminated: false },
+              [`players.${botId}`]: { id: botId, n: `[BOT] ${char.n}`, isBot: true, color, charId: char.id, ready: true, hasStregoneria: false, isEliminated: false, isInfected: false, pos: null, shieldUntil: 0, stunnedUntil: 0 },
               playerOrder: [...room.playerOrder, botId]
             });
           };
@@ -593,7 +658,7 @@
               const pickedChars = Object.values(existingPlayersObj).map(p => p.charId).filter(Boolean);
               const available = CHARACTERS.filter(c => !pickedChars.includes(c.id));
               const char = available[Math.floor(Math.random() * available.length)];
-              return { id: botId, data: { id: botId, n: `[BOT] ${char.n}`, isBot: true, color, charId: char.id, ready: true, hasStregoneria: false, isEliminated: false } };
+              return { id: botId, data: { id: botId, n: `[BOT] ${char.n}`, isBot: true, color, charId: char.id, ready: true, hasStregoneria: false, isEliminated: false, isInfected: false, pos: null, shieldUntil: 0, stunnedUntil: 0 } };
           };
 
           const startGame = async () => {
@@ -627,20 +692,37 @@
                 });
 
             } else {
-                const spawnRate = room.config.mode === 'elimination' ? 0.15 : 0.08;
-                const board = generateBoard(room.config.size, room.config.shape, spawnRate);
+                const isInf = room.config.mode === 'infezione';
+                const board = generateBoard(room.config.size, room.config.shape, isInf, room.playerOrder.length);
                 const spawns = getSpawnPoints(room.config.size, room.playerOrder.length, board);
                 
                 const updates = { 
                     status: 'playing', turnIndex: 0, round: 1, actionState: 'rolling', movesLeft: 0, currentRoll: 0, currentEvent: null,
-                    eliminationRank: [],
-                    lastAction: { msg: `🎮 La partita inizia! Tocca a ${room.players[room.playerOrder[0]]?.n}!`, id: Date.now() }
+                    eliminationRank: []
                 };
+
+                let firstInfected = null;
+                if (isInf) {
+                    firstInfected = room.playerOrder[Math.floor(Math.random() * room.playerOrder.length)];
+                    updates.lastAction = { msg: `🧟 La partita Infezione inizia! ${room.players[firstInfected].n} è lo ZOMBIE!`, id: Date.now() };
+                } else {
+                    updates.lastAction = { msg: `🎮 La partita inizia! Tocca a ${room.players[room.playerOrder[0]]?.n}!`, id: Date.now() };
+                }
+
                 room.playerOrder.forEach((pid, idx) => {
                   updates[`players.${pid}.tiles`] = 1; updates[`players.${pid}.inventory`] = [];
                   updates[`players.${pid}.modifier`] = 0; updates[`players.${pid}.isTrapped`] = false; updates[`players.${pid}.hasStregoneria`] = false;
                   updates[`players.${pid}.isEliminated`] = false;
-                  if (spawns[idx]) { board[`${spawns[idx]}`] = { owner: pid, item: null, isSpawn: true, isWall: false }; }
+                  updates[`players.${pid}.shieldUntil`] = 0; updates[`players.${pid}.stunnedUntil`] = 0;
+                  
+                  if (isInf) {
+                      updates[`players.${pid}.isInfected`] = (pid === firstInfected);
+                      updates[`players.${pid}.pos`] = spawns[idx];
+                      if (spawns[idx]) { board[`${spawns[idx]}`] = { owner: pid, item: null, isSpawn: false, isWall: false }; }
+                  } else {
+                      updates[`players.${pid}.isInfected`] = false;
+                      if (spawns[idx]) { board[`${spawns[idx]}`] = { owner: pid, item: null, isSpawn: true, isWall: false }; }
+                  }
                 });
                 updates.board = board; 
                 await updateDoc(doc(getCollectionRef(), room.id), updates);
@@ -662,15 +744,17 @@
                     <div className="space-y-4">
                       <div>
                         <label className="block text-sm text-slate-400 mb-1">Modalità Gioco</label>
-                        <div className="flex gap-2 text-xs sm:text-sm">
-                            <button onClick={() => updateConfig('mode', 'standard')} className={`flex-1 py-2 rounded ${room.config.mode==='standard' ? 'bg-indigo-500 text-white font-bold' : 'bg-slate-700 text-slate-300'}`}>Standard</button>
-                            <button onClick={() => updateConfig('mode', 'elimination')} className={`flex-1 py-2 rounded ${room.config.mode==='elimination' ? 'bg-red-600 text-white font-bold shadow-[0_0_10px_red]' : 'bg-slate-700 text-slate-300'}`}>Eliminazione</button>
-                            <button onClick={() => updateConfig('mode', 'tournament')} className={`flex-1 py-2 rounded ${room.config.mode==='tournament' ? 'bg-orange-500 text-white font-bold' : 'bg-slate-700 text-slate-300'}`}>Torneo</button>
+                        <div className="grid grid-cols-2 gap-2 text-xs sm:text-sm">
+                            <button onClick={() => updateConfig('mode', 'standard')} className={`py-2 rounded ${room.config.mode==='standard' ? 'bg-indigo-500 text-white font-bold' : 'bg-slate-700 text-slate-300'}`}>Standard</button>
+                            <button onClick={() => updateConfig('mode', 'elimination')} className={`py-2 rounded ${room.config.mode==='elimination' ? 'bg-red-600 text-white font-bold shadow-[0_0_10px_red]' : 'bg-slate-700 text-slate-300'}`}>Eliminazione</button>
+                            <button onClick={() => updateConfig('mode', 'infezione')} className={`py-2 col-span-2 rounded ${room.config.mode==='infezione' ? 'bg-green-600 text-white font-bold shadow-[0_0_15px_green]' : 'bg-slate-700 text-slate-300'}`}>🧟 Infezione (Zombie)</button>
+                            <button onClick={() => updateConfig('mode', 'tournament')} className={`py-2 col-span-2 rounded ${room.config.mode==='tournament' ? 'bg-orange-500 text-white font-bold' : 'bg-slate-700 text-slate-300'}`}>Torneo</button>
                         </div>
                         {room.config.mode === 'elimination' && <div className="text-xs text-red-400 mt-1 animate-pulse">Ogni 3 round l'ultimo muore!</div>}
+                        {room.config.mode === 'infezione' && <div className="text-xs text-green-400 mt-1 animate-pulse">Scappa dallo Zombie. Gli strumenti classici sono rimpiazzati!</div>}
                       </div>
 
-                      {room.config.mode === 'standard' || room.config.mode === 'elimination' ? (
+                      {room.config.mode === 'standard' || room.config.mode === 'elimination' || room.config.mode === 'infezione' ? (
                           <div>
                             <label className="block text-sm text-slate-400 mb-1">Giocatori Max (4-16)</label>
                             <input type="range" min="4" max="16" value={room.config.players} onChange={(e) => updateConfig('players', parseInt(e.target.value))} className="w-full accent-indigo-500" />
@@ -685,21 +769,24 @@
                           </div>
                       )}
 
-                      <div>
-                        <label className="block text-sm text-slate-400 mb-1">Regole di Combattimento</label>
-                        <div className="flex gap-2">
-                            <button onClick={() => updateConfig('invasionMode', false)} className={`flex-1 py-2 rounded ${!room.config.invasionMode ? 'bg-indigo-500 text-white font-bold' : 'bg-slate-700 text-slate-300'}`}>Pacifica</button>
-                            <button onClick={() => updateConfig('invasionMode', true)} className={`flex-1 py-2 rounded ${room.config.invasionMode ? 'bg-red-500 text-white font-bold' : 'bg-slate-700 text-slate-300'}`}>Guerra</button>
-                        </div>
-                      </div>
-
-                      <div>
-                        <label className="block text-sm text-slate-400 mb-1">Eventi Speciali Meteo 🌪️</label>
-                        <div className="flex gap-2">
-                            <button onClick={() => updateConfig('eventsEnabled', false)} className={`flex-1 py-2 rounded ${!room.config.eventsEnabled ? 'bg-indigo-500 text-white font-bold' : 'bg-slate-700 text-slate-300'}`}>Classica</button>
-                            <button onClick={() => updateConfig('eventsEnabled', true)} className={`flex-1 py-2 rounded ${room.config.eventsEnabled ? 'bg-purple-600 text-white font-bold shadow-[0_0_15px_purple]' : 'bg-slate-700 text-slate-300'}`}>Caos Meteo!</button>
-                        </div>
-                      </div>
+                      {room.config.mode !== 'infezione' && (
+                          <>
+                              <div>
+                                <label className="block text-sm text-slate-400 mb-1">Regole di Combattimento</label>
+                                <div className="flex gap-2">
+                                    <button onClick={() => updateConfig('invasionMode', false)} className={`flex-1 py-2 rounded ${!room.config.invasionMode ? 'bg-indigo-500 text-white font-bold' : 'bg-slate-700 text-slate-300'}`}>Pacifica</button>
+                                    <button onClick={() => updateConfig('invasionMode', true)} className={`flex-1 py-2 rounded ${room.config.invasionMode ? 'bg-red-500 text-white font-bold' : 'bg-slate-700 text-slate-300'}`}>Guerra</button>
+                                </div>
+                              </div>
+                              <div>
+                                <label className="block text-sm text-slate-400 mb-1">Eventi Speciali Meteo 🌪️</label>
+                                <div className="flex gap-2">
+                                    <button onClick={() => updateConfig('eventsEnabled', false)} className={`flex-1 py-2 rounded ${!room.config.eventsEnabled ? 'bg-indigo-500 text-white font-bold' : 'bg-slate-700 text-slate-300'}`}>Classica</button>
+                                    <button onClick={() => updateConfig('eventsEnabled', true)} className={`flex-1 py-2 rounded ${room.config.eventsEnabled ? 'bg-purple-600 text-white font-bold shadow-[0_0_15px_purple]' : 'bg-slate-700 text-slate-300'}`}>Caos Meteo!</button>
+                                </div>
+                              </div>
+                          </>
+                      )}
 
                       <div>
                         <label className="block text-sm text-slate-400 mb-1">Mappa</label>
@@ -716,7 +803,7 @@
                         <input type="range" min="5" max="50" value={room.config.maxRounds} onChange={(e) => updateConfig('maxRounds', parseInt(e.target.value))} className="w-full accent-indigo-500" />
                       </div>
                       
-                      {(room.config.mode === 'standard' || room.config.mode === 'elimination') && (
+                      {(room.config.mode === 'standard' || room.config.mode === 'elimination' || room.config.mode === 'infezione') && (
                           <button onClick={addBot} disabled={room.playerOrder.length >= room.config.players} className="w-full bg-slate-700 hover:bg-slate-600 py-2 rounded text-sm disabled:opacity-50">+ Aggiungi Bot NPC</button>
                       )}
                     </div>
@@ -872,7 +959,7 @@
                 initAudio();
                 const matchPlayers = match.players;
                 const dynamicSize = matchPlayers.length === 2 ? 8 : (matchPlayers.length >= 16 ? 18 : (matchPlayers.length >= 8 ? 14 : 10));
-                const board = generateBoard(dynamicSize, room.config.shape);
+                const board = generateBoard(dynamicSize, room.config.shape, false, matchPlayers.length);
                 const spawns = getSpawnPoints(dynamicSize, matchPlayers.length, board);
                 
                 const updates = { 
@@ -895,7 +982,7 @@
                 if (!isHost) return;
                 const matchPlayers = match.players;
                 const dynamicSize = matchPlayers.length === 2 ? 8 : (matchPlayers.length >= 16 ? 18 : (matchPlayers.length >= 8 ? 14 : 10));
-                let fakeBoard = generateBoard(dynamicSize, room.config.shape);
+                let fakeBoard = generateBoard(dynamicSize, room.config.shape, false, matchPlayers.length);
 
                 const keys = Object.keys(fakeBoard);
                 keys.forEach(k => { if (fakeBoard[k]) fakeBoard[k].owner = matchPlayers[Math.floor(Math.random() * matchPlayers.length)]; });
@@ -992,6 +1079,8 @@
           const isHost = room.hostId === user.uid;
           const matchPlayerOrder = (room.status.includes('match') ? room.currentMatchPlayers : room.playerOrder) || [];
           const boardSize = room.status.includes('match') ? (room.currentMatchSize || room.config.size) : room.config.size;
+          const isModeInfezione = room.config.mode === 'infezione';
+          const activeItems = isModeInfezione ? INF_ITEMS : ITEMS;
           
           const activePlayerId = matchPlayerOrder[room.turnIndex || 0];
           const activePlayer = activePlayerId ? room.players[activePlayerId] : null;
@@ -1026,11 +1115,19 @@
           useEffect(() => {
             if (!isHost || !activePlayer?.isBot || !room.status.startsWith('playing') || activePlayer?.isEliminated) return;
 
-            let timeout;
+            let isCancelled = false;
+
             const botPlay = async () => {
+              const delay = (ms) => new Promise(res => setTimeout(res, ms));
+              
+              // Pausa iniziale per non renderlo troppo schizofrenico
+              await delay(1000 / (room.config.botSpeed || 1));
+              if (isCancelled) return;
+
               const updates = {};
               
-              if (activePlayer?.hasStregoneria) {
+              // STREGONERIA PRE-LANCIO (Solo Classica/Elim)
+              if (activePlayer?.hasStregoneria && !isModeInfezione) {
                   const baseRoll = Math.floor(Math.random() * 6) + 1;
                   const totalRoll = Math.max(1, baseRoll + (activePlayer?.modifier || 0));
                   
@@ -1050,14 +1147,18 @@
                   return;
               }
 
+              // CONTROLLO MOSSE POSSIBILI
               const sourcePlayerId = room.currentEvent === 'tempesta' ? matchPlayerOrder[(matchPlayerOrder.indexOf(activePlayerId) + 1) % matchPlayerOrder.length] : activePlayerId;
-              const playable = getPlayableTiles(sourcePlayerId, room.board || {}, boardSize, room.config.invasionMode, activePlayerId);
+              let currentPos = activePlayer.pos; // FIX: Memoria posizione per Infezione
+
+              let playable = getPlayableTiles(sourcePlayerId, room.board || {}, boardSize, room.config.invasionMode, activePlayerId, isModeInfezione, room.players, room.round, currentPos);
               
               if (playable.length === 0) {
                 await nextTurn();
                 return;
               }
 
+              // LANCIO DADO
               const baseRoll = Math.floor(Math.random() * 6) + 1;
               const mod = activePlayer?.modifier || 0;
               const totalRoll = Math.max(1, baseRoll + mod);
@@ -1071,105 +1172,233 @@
               let currentBoard = { ...(room.board || {}) };
               let currentInv = [...(activePlayer?.inventory || [])];
 
-              const makeMove = async () => {
-                if (currentMoves <= 0) {
-                  if (currentInv.length > 0 && room.currentEvent !== 'carestia') {
-                    const item = currentInv[0];
-                    if (item === 'turbo') updates[`players.${activePlayerId}.modifier`] = 2;
-                    
-                    if (item === 'conquista') {
-                         const emptyTiles = Object.keys(currentBoard).filter(k => currentBoard[k] && !currentBoard[k].owner && !currentBoard[k].isWall);
-                         if(emptyTiles.length > 0) {
-                             const toClaim = emptyTiles.sort(() => 0.5 - Math.random()).slice(0, 2);
-                             toClaim.forEach(k => { currentBoard[k] = { ...currentBoard[k], owner: activePlayerId, item: null }; updates[`board.${k}`] = currentBoard[k]; });
-                             updates[`players.${activePlayerId}.tiles`] = Object.values(currentBoard).filter(v => v?.owner === activePlayerId).length;
-                             updates.globalAction = { msg: `🏳️ ${activePlayer?.n} ha usato Conquista!`, id: Date.now() };
-                         }
-                    }
+              // UTILIZZO STRUMENTI (Prima di muoversi)
+              if (currentInv.length > 0 && room.currentEvent !== 'carestia') {
+                  const item = currentInv[0];
+                  
+                  if (!isModeInfezione) {
+                      if (item === 'turbo') updates[`players.${activePlayerId}.modifier`] = 2;
+                      
+                      if (item === 'conquista') {
+                           const emptyTiles = Object.keys(currentBoard).filter(k => currentBoard[k] && !currentBoard[k].owner && !currentBoard[k].isWall);
+                           if(emptyTiles.length > 0) {
+                               const toClaim = emptyTiles.sort(() => 0.5 - Math.random()).slice(0, 2);
+                               toClaim.forEach(k => { currentBoard[k] = { ...currentBoard[k], owner: activePlayerId, item: null }; updates[`board.${k}`] = currentBoard[k]; });
+                               updates[`players.${activePlayerId}.tiles`] = Object.values(currentBoard).filter(v => v?.owner === activePlayerId).length;
+                               updates.globalAction = { msg: `🏳️ ${activePlayer?.n} ha usato Conquista!`, id: Date.now() };
+                           }
+                      }
 
-                    if (item === 'curse' || item === 'terremoto' || item === 'stregoneria') {
-                        const enemies = matchPlayerOrder.filter(id => id !== activePlayerId && room.players[id] && !room.players[id].isTrapped && !room.players[id].isEliminated);
-                        if (enemies.length > 0) {
-                            const target = enemies[Math.floor(Math.random() * enemies.length)];
-                            if(item === 'curse') {
-                                updates[`players.${target}.modifier`] = -2;
-                                updates.globalAction = { msg: `💀 ${activePlayer?.n} ha Maledetto ${room.players[target]?.n}!`, id: Date.now() };
-                            }
-                            if(item === 'terremoto') {
-                                const targetTiles = Object.keys(currentBoard).filter(k => currentBoard[k]?.owner === target && !currentBoard[k]?.isSpawn);
-                                if(targetTiles.length > 0) {
-                                    const toDestroy = targetTiles.sort(() => 0.5 - Math.random()).slice(0, 2);
-                                    toDestroy.forEach(k => { currentBoard[k] = { ...currentBoard[k], owner: null, item: null }; updates[`board.${k}`] = currentBoard[k]; });
-                                    updates[`players.${target}.tiles`] = Object.values(currentBoard).filter(v => v?.owner === target).length;
-                                    updates.globalAction = { msg: `🌋 ${activePlayer?.n} scatena un Terremoto contro ${room.players[target]?.n}!`, id: Date.now() };
-                                }
-                            }
-                            if (item === 'stregoneria') {
-                                updates[`players.${target}.hasStregoneria`] = true;
-                                updates.globalAction = { msg: `🔮 ${activePlayer?.n} lancia Stregoneria su ${room.players[target]?.n}!`, id: Date.now() };
-                            }
-                        }
-                    }
-                    currentInv.shift(); 
-                    updates[`players.${activePlayerId}.inventory`] = currentInv;
+                      if (item === 'curse' || item === 'terremoto' || item === 'stregoneria') {
+                          const enemies = matchPlayerOrder.filter(id => id !== activePlayerId && room.players[id] && !room.players[id].isTrapped && !room.players[id].isEliminated);
+                          if (enemies.length > 0) {
+                              const target = enemies[Math.floor(Math.random() * enemies.length)];
+                              if(item === 'curse') {
+                                  updates[`players.${target}.modifier`] = -2;
+                                  updates.globalAction = { msg: `💀 ${activePlayer?.n} ha Maledetto ${room.players[target]?.n}!`, id: Date.now() };
+                              }
+                              if(item === 'terremoto') {
+                                  const targetTiles = Object.keys(currentBoard).filter(k => currentBoard[k]?.owner === target && !currentBoard[k]?.isSpawn);
+                                  if(targetTiles.length > 0) {
+                                      const toDestroy = targetTiles.sort(() => 0.5 - Math.random()).slice(0, 2);
+                                      toDestroy.forEach(k => { currentBoard[k] = { ...currentBoard[k], owner: null, item: null }; updates[`board.${k}`] = currentBoard[k]; });
+                                      updates[`players.${target}.tiles`] = Object.values(currentBoard).filter(v => v?.owner === target).length;
+                                      updates.globalAction = { msg: `🌋 ${activePlayer?.n} scatena un Terremoto contro ${room.players[target]?.n}!`, id: Date.now() };
+                                  }
+                              }
+                              if (item === 'stregoneria') {
+                                  updates[`players.${target}.hasStregoneria`] = true;
+                                  updates.globalAction = { msg: `🔮 ${activePlayer?.n} lancia Stregoneria su ${room.players[target]?.n}!`, id: Date.now() };
+                              }
+                          }
+                      }
+                  } else {
+                      // BOT INFECTION ITEMS
+                      if (item === 'turbo_inf') updates[`players.${activePlayerId}.modifier`] = 3;
+                      if (item === 'scudo') updates[`players.${activePlayerId}.shieldUntil`] = room.round + 2;
+                      if (item === 'stordimento' && !activePlayer.isInfected) {
+                          matchPlayerOrder.filter(pid => room.players[pid].isInfected).forEach(pid => { updates[`players.${pid}.stunnedUntil`] = room.round + 1; });
+                          updates.globalAction = { msg: `💫 ${activePlayer.n} ha stordito gli infetti!`, id: Date.now() };
+                      }
+                      if (item === 'teletrasporto') {
+                           const targets = matchPlayerOrder.filter(pid => pid !== activePlayerId && !room.players[pid].isEliminated);
+                           if (targets.length > 0) {
+                               const tId = targets[Math.floor(Math.random() * targets.length)];
+                               const tPos = room.players[tId].pos;
+                               if (tPos) {
+                                   const [tx, ty] = tPos.split(',').map(Number);
+                                   const adjs = [`${tx+1},${ty}`, `${tx-1},${ty}`, `${tx},${ty+1}`, `${tx},${ty-1}`];
+                                   const validAdjs = adjs.filter(a => currentBoard[a] && !currentBoard[a].owner && !currentBoard[a].isWall);
+                                   if (validAdjs.length > 0) {
+                                       const tpDest = validAdjs[0];
+                                       currentBoard[activePlayer.pos] = { ...currentBoard[activePlayer.pos], owner: null };
+                                       currentBoard[tpDest] = { ...currentBoard[tpDest], owner: activePlayerId };
+                                       updates[`players.${activePlayerId}.pos`] = tpDest;
+                                       currentPos = tpDest; // Aggiorna la memoria!
+                                       updates.globalAction = { msg: `🌀 ${activePlayer.n} si è teletrasportato!`, id: Date.now() };
+                                   }
+                               }
+                           }
+                      }
+                      if (item === 'builder') {
+                           if(currentPos) {
+                               const [bx, by] = currentPos.split(',').map(Number);
+                               const adjs = [`${bx+1},${by}`, `${bx-1},${by}`, `${bx},${by+1}`, `${bx},${by-1}`];
+                               const validAdjs = adjs.filter(a => currentBoard[a] && !currentBoard[a].owner && !currentBoard[a].isWall);
+                               validAdjs.slice(0, 2).forEach(k => { currentBoard[k] = { ...currentBoard[k], isWall: true, wallExpiry: room.round + 2, item: null }; });
+                           }
+                      }
+                  }
+                  currentInv.shift(); 
+                  updates[`players.${activePlayerId}.inventory`] = currentInv;
+              }
+
+              // CICLO DI MOVIMENTO A PASSI (Risolve il bug del movimento "Istantaneo" e "Clonazione Infezione")
+              while (currentMoves > 0 && !isCancelled) {
+                  // Pausa per mostrare l'animazione tile per tile
+                  await delay(600 / (room.config.botSpeed || 1));
+                  if (isCancelled) return;
+
+                  const dynamicSource = room.currentEvent === 'tempesta' ? matchPlayerOrder[(matchPlayerOrder.indexOf(activePlayerId) + 1) % matchPlayerOrder.length] : activePlayerId;
+                  let validMoves = getPlayableTiles(dynamicSource, currentBoard, boardSize, room.config.invasionMode, activePlayerId, isModeInfezione, room.players, room.round, currentPos);
+                  
+                  if (validMoves.length === 0) break; // Non può più muoversi
+
+                  let bestMove = validMoves[0];
+
+                  // IA DI INFEZIONE (Calcola ad ogni passo)
+                  if (isModeInfezione) {
+                      const getManhattan = (t1, t2) => {
+                          if (!t1 || !t2) return Infinity;
+                          const [x1, y1] = t1.split(',').map(Number); const [x2, y2] = t2.split(',').map(Number);
+                          return Math.abs(x1 - x2) + Math.abs(y1 - y2);
+                      };
+
+                      if (activePlayer.isInfected) {
+                          let minD = Infinity; let targetPos = null;
+                          matchPlayerOrder.forEach(pid => {
+                              const p = room.players[pid];
+                              if (p && !p.isInfected && !p.isEliminated && p.pos) {
+                                  const d = getManhattan(currentPos, p.pos);
+                                  if (d < minD) { minD = d; targetPos = p.pos; }
+                              }
+                          });
+                          if (targetPos) {
+                              validMoves.sort((a, b) => getManhattan(a, targetPos) - getManhattan(b, targetPos));
+                              bestMove = validMoves[0];
+                          } else {
+                              bestMove = validMoves[Math.floor(Math.random() * validMoves.length)];
+                          }
+                      } else {
+                          let minD = Infinity; let zombiePos = null;
+                          matchPlayerOrder.forEach(pid => {
+                              const p = room.players[pid];
+                              if (p && p.isInfected && p.pos) {
+                                  const d = getManhattan(currentPos, p.pos);
+                                  if (d < minD) { minD = d; zombiePos = p.pos; }
+                              }
+                          });
+                          if (zombiePos) {
+                              validMoves.sort((a, b) => getManhattan(b, zombiePos) - getManhattan(a, zombiePos));
+                              bestMove = validMoves[0]; // Va nella tile più lontana dallo zombie
+                          } else {
+                              bestMove = validMoves[Math.floor(Math.random() * validMoves.length)];
+                          }
+                      }
+                  } 
+                  // IA CLASSICA
+                  else {
+                      const withItem = validMoves.find(k => currentBoard[k].item);
+                      if (withItem) bestMove = withItem;
+                      else bestMove = validMoves[Math.floor(Math.random() * validMoves.length)];
                   }
 
-                  updates.actionState = 'rolling';
-                  updates.movesLeft = 0;
+                  const targetCell = currentBoard[bestMove];
+                  const pickedItem = targetCell.item;
+
+                  // APPLICA IL PASSO SULLA GRIGLIA
+                  if (isModeInfezione) {
+                      const oldPos = currentPos;
+                      if (targetCell.owner && targetCell.owner !== activePlayerId) {
+                          const victimId = targetCell.owner;
+                          updates[`players.${victimId}.isInfected`] = true;
+                          updates[`players.${victimId}.pos`] = oldPos;
+                          updates.eliminationRank = [victimId, ...(room.eliminationRank || [])];
+                          updates.globalAction = { msg: `🧟 ${activePlayer.n} ha infettato ${room.players[victimId].n}!`, id: Date.now() };
+                          currentBoard[oldPos] = { ...currentBoard[oldPos], owner: victimId, item: null };
+                          currentBoard[bestMove] = { ...currentBoard[bestMove], owner: activePlayerId, item: null };
+                      } else {
+                          if (currentBoard[oldPos]) {
+                              currentBoard[oldPos] = { ...currentBoard[oldPos], owner: null, item: null };
+                          }
+                          currentBoard[bestMove] = { ...currentBoard[bestMove], owner: activePlayerId, item: null };
+                      }
+                      currentPos = bestMove; // Memorizza la posizione reale attuale!
+                      updates[`players.${activePlayerId}.pos`] = bestMove;
+                  } else {
+                      currentBoard[bestMove] = { ...currentBoard[bestMove], owner: activePlayerId, item: null };
+                  }
+                  
+                  updates[`board`] = currentBoard;
+                  currentMoves--;
+                  
+                  if (pickedItem && currentInv.length < 2) currentInv.push(pickedItem);
+
+                  if (room.currentEvent === 'glaciale') {
+                      const [cx, cy] = bestMove.split(',').map(Number);
+                      const adjs = [`${cx+1},${cy}`, `${cx-1},${cy}`, `${cx},${cy+1}`, `${cx},${cy-1}`];
+                      const validIce = adjs.filter(adj => currentBoard[adj] && !currentBoard[adj].owner && !currentBoard[adj].isWall);
+                      if (validIce.length > 0) {
+                          const icePick = validIce[Math.floor(Math.random() * validIce.length)];
+                          currentBoard[icePick] = { ...currentBoard[icePick], owner: activePlayerId, item: null };
+                          updates[`board`] = currentBoard;
+                      }
+                  }
+
+                  updates.movesLeft = currentMoves;
+                  updates[`players.${activePlayerId}.tiles`] = isModeInfezione ? 1 : Object.values(currentBoard).filter(v => v?.owner === activePlayerId).length;
+                  updates[`players.${activePlayerId}.inventory`] = currentInv;
+
+                  // Invia a Firebase il singolo passo! (Scatena il re-render)
                   await updateDoc(boardRef, updates);
-                  await nextTurn();
-                  return;
-                }
+              }
 
-                const dynamicSource = room.currentEvent === 'tempesta' ? matchPlayerOrder[(matchPlayerOrder.indexOf(activePlayerId) + 1) % matchPlayerOrder.length] : activePlayerId;
-                const validMoves = getPlayableTiles(dynamicSource, currentBoard, boardSize, room.config.invasionMode, activePlayerId);
-                if (validMoves.length === 0) { await nextTurn(); return; }
+              if (isCancelled) return;
 
-                let bestMove = validMoves[0];
-                const withItem = validMoves.find(k => currentBoard[k].item);
-                if (withItem) bestMove = withItem;
-                else bestMove = validMoves[Math.floor(Math.random() * validMoves.length)];
-
-                const pickedItem = currentBoard[bestMove].item;
-                currentBoard[bestMove] = { ...currentBoard[bestMove], owner: activePlayerId, item: null };
-                updates[`board.${bestMove}`] = currentBoard[bestMove];
-                currentMoves--;
-                
-                if (pickedItem && currentInv.length < 2) currentInv.push(pickedItem);
-
-                if (room.currentEvent === 'glaciale') {
-                    const [cx, cy] = bestMove.split(',').map(Number);
-                    const adjs = [`${cx+1},${cy}`, `${cx-1},${cy}`, `${cx},${cy+1}`, `${cx},${cy-1}`];
-                    const validIce = adjs.filter(adj => currentBoard[adj] && !currentBoard[adj].owner && !currentBoard[adj].isWall);
-                    if (validIce.length > 0) {
-                        const icePick = validIce[Math.floor(Math.random() * validIce.length)];
-                        currentBoard[icePick] = { ...currentBoard[icePick], owner: activePlayerId, item: null };
-                        updates[`board.${icePick}`] = currentBoard[icePick];
-                    }
-                }
-
-                await updateDoc(boardRef, {
-                  ...updates,
-                  movesLeft: currentMoves,
-                  [`players.${activePlayerId}.tiles`]: Object.values(currentBoard).filter(v => v?.owner === activePlayerId).length,
-                  [`players.${activePlayerId}.inventory`]: currentInv
-                });
-
-                const speedMult = room.config.botSpeed || 1;
-                timeout = setTimeout(makeMove, 600 / speedMult);
-              };
-
-              const startSpeedMult = room.config.botSpeed || 1;
-              timeout = setTimeout(makeMove, 1000 / startSpeedMult);
+              // Fine del turno logica
+              updates.actionState = 'rolling';
+              updates.movesLeft = 0;
+              await updateDoc(boardRef, updates);
+              await nextTurn();
             };
 
             botPlay();
-            return () => clearTimeout(timeout);
+            return () => { isCancelled = true; }; // Cleanup per evitare memory leaks
           }, [room.turnIndex, isHost, activePlayer?.isBot, room.config.botSpeed]);
 
-          const getPlayableTiles = (sourceId, currentBoard, size, invasionMode, actualPlayerId) => {
-            const valid = [];
+          const getPlayableTiles = (sourceId, currentBoard, size, invasionMode, actualPlayerId, isInfezione, playersState, round, currentPosOverride = null) => {
             const actId = actualPlayerId || sourceId;
+            const valid = [];
+            
+            if (isInfezione) {
+                const player = playersState[actId];
+                if (!player || player.stunnedUntil > round) return [];
+                const pos = currentPosOverride || player.pos; // FIX: Usa la posizione in memoria per l'IA
+                if (!pos) return [];
+                const [x, y] = pos.split(',').map(Number);
+                const adjs = [`${x+1},${y}`, `${x-1},${y}`, `${x},${y+1}`, `${x},${y-1}`];
+                adjs.forEach(adj => {
+                    const cell = currentBoard[adj];
+                    if (cell !== undefined && !cell.isWall) {
+                        if (!cell.owner) valid.push(adj);
+                        else if (player.isInfected && !playersState[cell.owner].isInfected && playersState[cell.owner].shieldUntil <= round) {
+                            valid.push(adj);
+                        }
+                    }
+                });
+                return valid;
+            }
+
             const myTiles = Object.entries(currentBoard).filter(([_, v]) => v?.owner === sourceId).map(([k]) => k);
             myTiles.forEach(tile => {
               const [x, y] = tile.split(',').map(Number);
@@ -1204,7 +1433,17 @@
                      if (nextIdx === 0) {
                          nextRound++;
                          
-                         // LOGICA MODALITÀ ELIMINAZIONE (Ogni 3 round l'ultimo muore)
+                         // Clear Expired Builder Walls
+                         let boardChanged = false;
+                         Object.keys(currentBoard).forEach(k => {
+                             if (currentBoard[k].isWall && currentBoard[k].wallExpiry && nextRound > currentBoard[k].wallExpiry) {
+                                 currentBoard[k] = { ...currentBoard[k], isWall: false, wallExpiry: null };
+                                 boardChanged = true;
+                             }
+                         });
+                         if(boardChanged) updates.board = currentBoard;
+
+                         // ELIMINATION MODE
                          if (room.config.mode === 'elimination' && (nextRound - 1) % 3 === 0) {
                              const activePids = matchPlayerOrder.filter(pid => !room.players[pid]?.isEliminated && !updates[`players.${pid}.isEliminated`]);
                              if (activePids.length > 1) {
@@ -1223,7 +1462,6 @@
                                  updates[`players.${loserId}.inventory`] = [];
                                  updates.eliminationRank = [loserId, ...(updates.eliminationRank || room.eliminationRank || [])];
                                  
-                                 // Distruzione a catena del territorio COMPLETA (inclusa la base)
                                  const loserTiles = Object.keys(currentBoard).filter(k => currentBoard[k]?.owner === loserId).sort(() => 0.5 - Math.random());
                                  loserTiles.forEach((k, i) => {
                                      currentBoard[k] = { ...currentBoard[k], owner: null, item: null, isSpawn: false, explodedAt: Date.now(), explodeDelay: i * 100, oldColor: room.players[loserId].color };
@@ -1233,8 +1471,8 @@
                                  updates.globalAction = { msg: `☠️ ELIMINAZIONE! ${room.players[loserId].n} è stato distrutto!`, id: Date.now() };
                              }
                          }
-                         // LOGICA METEO E DROP
-                         else if (!eliminatedThisTurn && isHost && room.config.eventsEnabled && nextRound > 1 && Math.random() < 0.30) {
+                         // METEO EVENTS
+                         else if (!eliminatedThisTurn && isHost && room.config.eventsEnabled && nextRound > 1 && Math.random() < 0.30 && !isModeInfezione) {
                              const ev = EVENT_TYPES[Math.floor(Math.random() * EVENT_TYPES.length)];
                              updates.globalAction = { msg: `🚨 METEO: ${ev.n}! ${ev.desc}`, id: Date.now() };
                              
@@ -1271,15 +1509,6 @@
                                  meteors.forEach(k => { currentBoard[k] = { ...currentBoard[k], owner: null, item: null, isWall: true }; updates[`board.${k}`] = currentBoard[k]; });
                              }
                          }
-                         else if (!eliminatedThisTurn && isHost && Math.random() < (room.config.mode === 'elimination' ? 0.15 : 0.08)) {
-                             const emptyTiles = Object.keys(currentBoard).filter(k => currentBoard[k] && !currentBoard[k].owner && !currentBoard[k].item && !currentBoard[k].isWall);
-                             if (emptyTiles.length > 0) {
-                                 const randomTile = emptyTiles[Math.floor(Math.random() * emptyTiles.length)];
-                                 const randomItem = ITEMS[Math.floor(Math.random() * ITEMS.length)].id;
-                                 updates[`board.${randomTile}.item`] = randomItem;
-                                 updates.globalAction = { msg: `🎁 Un nuovo strumento è apparso sulla mappa!`, id: Date.now() };
-                             }
-                         }
                      }
                      loopCount++;
                      if(loopCount > matchPlayerOrder.length * 2) break; // Safety break
@@ -1289,22 +1518,54 @@
                  );
              }
 
+             // SPAWN STRUMENTI (6% infezione, 8% normal, 15% elim)
+             if (isHost && !updates.globalAction) {
+                 const pCount = matchPlayerOrder.length;
+                 const maxAllowed = isModeInfezione ? (pCount <= 4 ? 3 : (pCount <= 8 ? 7 : 15)) : 99;
+                 const currItems = Object.values(currentBoard).filter(c => c.item).length;
+                 const spRate = isModeInfezione ? 0.06 : (room.config.mode === 'elimination' ? 0.15 : 0.08);
+
+                 if (currItems < maxAllowed && Math.random() < spRate) {
+                     const balancedTile = getBalancedEmptyTile(currentBoard);
+                     if (balancedTile) {
+                         const randomItem = activeItems[Math.floor(Math.random() * activeItems.length)].id;
+                         updates[`board.${balancedTile}.item`] = randomItem;
+                         updates.globalAction = { msg: `🎁 Uno strumento è apparso sulla mappa!`, id: Date.now() };
+                     }
+                 }
+             }
+
              const activeAfterUpdates = matchPlayerOrder.filter(pid => !room.players[pid]?.isEliminated && !updates[`players.${pid}.isEliminated`] && pid !== eliminatedThisTurn);
              const totalTiles = Object.keys(currentBoard).filter(k => !currentBoard[k]?.isWall).length;
              const ownedTiles = Object.values(currentBoard).filter(v => v?.owner).length;
              
-             if (activeAfterUpdates.length <= 1 || nextRound > room.config.maxRounds || ownedTiles >= totalTiles) {
-                 if (activeAfterUpdates.length === 1 && room.config.mode === 'elimination') {
-                     const winnerId = activeAfterUpdates[0];
-                     updates.eliminationRank = [winnerId, ...(updates.eliminationRank || room.eliminationRank || [])];
+             let gameOver = false;
+             if (isModeInfezione) {
+                 const survivors = matchPlayerOrder.filter(pid => {
+                     const isInfNow = updates[`players.${pid}.isInfected`] !== undefined ? updates[`players.${pid}.isInfected`] : room.players[pid].isInfected;
+                     return !isInfNow;
+                 });
+                 if (survivors.length <= 1 || nextRound > room.config.maxRounds) {
+                     if (survivors.length === 1) updates.eliminationRank = [survivors[0], ...(updates.eliminationRank || room.eliminationRank || [])];
+                     gameOver = true;
                  }
+             } else {
+                 if (activeAfterUpdates.length <= 1 || nextRound > room.config.maxRounds || ownedTiles >= totalTiles) {
+                     if (activeAfterUpdates.length === 1 && room.config.mode === 'elimination') {
+                         updates.eliminationRank = [activeAfterUpdates[0], ...(updates.eliminationRank || room.eliminationRank || [])];
+                     }
+                     gameOver = true;
+                 }
+             }
+
+             if (gameOver) {
                  updates.status = room.status.includes('match') ? 'match_finished' : 'finished';
                  await updateDoc(boardRef, updates);
                  return;
              }
 
              updates.turnIndex = nextIdx; updates.round = nextRound; updates.actionState = 'rolling'; updates.movesLeft = 0; updates.currentRoll = 0;
-             if(!eliminatedThisTurn) updates.lastAction = { msg: `👉 Tocca a ${room.players[matchPlayerOrder[nextIdx]]?.n}!`, id: Date.now() };
+             if(!eliminatedThisTurn && !isModeInfezione) updates.lastAction = { msg: `👉 Tocca a ${room.players[matchPlayerOrder[nextIdx]]?.n}!`, id: Date.now() };
              await updateDoc(boardRef, updates);
           };
 
@@ -1316,7 +1577,7 @@
             const mod = activePlayer?.modifier || 0;
             const total = Math.max(1, base + mod);
 
-            if (activePlayer?.hasStregoneria) {
+            if (activePlayer?.hasStregoneria && !isModeInfezione) {
                 let currentBoard = { ...(room.board || {}) };
                 const myTiles = Object.keys(currentBoard).filter(k => currentBoard[k]?.owner === user.uid && !currentBoard[k]?.isSpawn);
                 const toDestroy = myTiles.sort(() => 0.5 - Math.random()).slice(0, total);
@@ -1339,7 +1600,8 @@
             }
 
             const sourceId = room.currentEvent === 'tempesta' ? matchPlayerOrder[(matchPlayerOrder.indexOf(user.uid) + 1) % matchPlayerOrder.length] : user.uid;
-            const playable = getPlayableTiles(sourceId, room.board || {}, boardSize, room.config.invasionMode, user.uid);
+            const playable = getPlayableTiles(sourceId, room.board || {}, boardSize, room.config.invasionMode, user.uid, isModeInfezione, room.players, room.round, me.pos);
+            
             if (playable.length === 0) {
                 await updateDoc(boardRef, { [`players.${user.uid}.isTrapped`]: true });
                 nextTurn();
@@ -1354,9 +1616,25 @@
 
           const clickTile = async (key) => {
             if (!isMyTurn || room.actionState !== 'moving' || room.movesLeft <= 0 || isGameEnded) return;
+
+            if (targetAction === 'builder') {
+                if (room.board[key] && !room.board[key].owner && !room.board[key].isWall) {
+                    const updates = {};
+                    updates[`board.${key}`] = { ...room.board[key], isWall: true, wallExpiry: room.round + 2, item: null };
+                    const newLeft = usingItemSlot.left - 1;
+                    if (newLeft <= 0) {
+                        updates.globalAction = { msg: `🧱 ${me.n} ha costruito dei muri!`, id: Date.now() };
+                        setTargetAction(null); consumeItem(usingItemSlot.slot); showNotif("Muri costruiti!");
+                    } else {
+                        setUsingItemSlot({...usingItemSlot, left: newLeft}); showNotif(`Piazza un altro muro (${newLeft} rimasti).`);
+                    }
+                    await updateDoc(boardRef, updates);
+                }
+                return;
+            }
             
             const sourceId = room.currentEvent === 'tempesta' ? matchPlayerOrder[(matchPlayerOrder.indexOf(user.uid) + 1) % matchPlayerOrder.length] : user.uid;
-            const playable = getPlayableTiles(sourceId, room.board || {}, boardSize, room.config.invasionMode, user.uid);
+            const playable = getPlayableTiles(sourceId, room.board || {}, boardSize, room.config.invasionMode, user.uid, isModeInfezione, room.players, room.round, me.pos);
             if (!playable.includes(key)) return;
 
             const cell = room.board[key];
@@ -1364,14 +1642,35 @@
             
             if (cell.item && newInv.length < 2) {
                 newInv.push(cell.item);
-                const foundItem = ITEMS.find(i=>i.id === cell.item);
+                const foundItem = activeItems.find(i=>i.id === cell.item);
                 if (foundItem) { showNotif(`Hai trovato: ${foundItem.n}!`); playItemSound(); }
             } else {
                 playMoveSound();
             }
 
-            const newBoard = {...room.board, [key]: { ...room.board[key], owner: user.uid, item: null }};
-            const updates = { [`board.${key}`]: newBoard[key], movesLeft: room.movesLeft - 1, [`players.${user.uid}.inventory`]: newInv };
+            const updates = { movesLeft: room.movesLeft - 1, [`players.${user.uid}.inventory`]: newInv };
+            const newBoard = { ...room.board };
+
+            if (isModeInfezione) {
+                const oldPos = me.pos;
+                if (cell.owner && cell.owner !== user.uid) {
+                    const victimId = cell.owner;
+                    updates[`players.${victimId}.isInfected`] = true;
+                    updates[`players.${victimId}.pos`] = oldPos;
+                    updates.eliminationRank = [victimId, ...(room.eliminationRank || [])];
+                    updates.globalAction = { msg: `🧟 ${me.n} ha infettato ${room.players[victimId].n}!`, id: Date.now() };
+                    newBoard[oldPos] = { ...newBoard[oldPos], owner: victimId, item: null };
+                    newBoard[key] = { ...newBoard[key], owner: user.uid, item: null };
+                } else {
+                    if(oldPos && newBoard[oldPos]) newBoard[oldPos] = { ...newBoard[oldPos], owner: null, item: null };
+                    newBoard[key] = { ...newBoard[key], owner: user.uid, item: null };
+                }
+                updates[`players.${user.uid}.pos`] = key;
+                updates[`players.${user.uid}.tiles`] = 1;
+            } else {
+                newBoard[key] = { ...newBoard[key], owner: user.uid, item: null };
+                updates[`players.${user.uid}.tiles`] = Object.values(newBoard).filter(v => v?.owner === user.uid).length;
+            }
 
             if (room.currentEvent === 'glaciale') {
                 const [cx, cy] = key.split(',').map(Number);
@@ -1380,14 +1679,13 @@
                 if (validIce.length > 0) {
                     const icePick = validIce[Math.floor(Math.random() * validIce.length)];
                     newBoard[icePick] = { ...newBoard[icePick], owner: user.uid, item: null };
-                    updates[`board.${icePick}`] = newBoard[icePick];
                 }
             }
 
-            updates[`players.${user.uid}.tiles`] = Object.values(newBoard).filter(v => v?.owner === user.uid).length;
+            updates.board = newBoard;
             await updateDoc(boardRef, updates);
 
-            const newPlayable = getPlayableTiles(sourceId, newBoard, boardSize, room.config.invasionMode, user.uid);
+            const newPlayable = getPlayableTiles(sourceId, newBoard, boardSize, room.config.invasionMode, user.uid, isModeInfezione, room.players, room.round, updates[`players.${user.uid}.pos`]);
             if (room.movesLeft - 1 === 0 || newPlayable.length === 0) {
                 await updateDoc(boardRef, { actionState: 'items_or_end' });
             }
@@ -1402,7 +1700,25 @@
               if (itemId === 'turbo') {
                   await updateDoc(boardRef, { [`players.${user.uid}.modifier`]: 2 });
                   consumeItem(slotIdx); showNotif("Turbo attivato! +2 al prossimo lancio.");
-              } 
+              }
+              else if (itemId === 'turbo_inf') {
+                  await updateDoc(boardRef, { [`players.${user.uid}.modifier`]: 3 });
+                  consumeItem(slotIdx); showNotif("Turbo Infetto! +3 al prossimo lancio.");
+              }
+              else if (itemId === 'scudo') {
+                  await updateDoc(boardRef, { [`players.${user.uid}.shieldUntil`]: room.round + 2 });
+                  consumeItem(slotIdx); showNotif("Scudo attivo per 2 turni!");
+              }
+              else if (itemId === 'stordimento') {
+                  if (me.isInfected) return showNotif("Gli infetti non possono usare lo stordimento!");
+                  const updates = {};
+                  matchPlayerOrder.filter(pid => room.players[pid].isInfected).forEach(pid => { updates[`players.${pid}.stunnedUntil`] = room.round + 1; });
+                  updates.globalAction = { msg: `💫 ${me.n} ha stordito gli infetti per 1 turno!`, id: Date.now() };
+                  await updateDoc(boardRef, updates); consumeItem(slotIdx);
+              }
+              else if (itemId === 'builder') {
+                  setTargetAction('builder'); setUsingItemSlot({slot: slotIdx, left: 2}); showNotif("Clicca 2 caselle vuote per creare dei muri!");
+              }
               else if (itemId === 'jackpot' && room.actionState === 'items_or_end') {
                   consumeItem(slotIdx); showNotif("JACKPOT! Giochi di nuovo!"); nextTurn(true); 
               } 
@@ -1410,27 +1726,40 @@
                   let currentBoard = { ...(room.board || {}) };
                   const emptyTiles = Object.keys(currentBoard).filter(k => currentBoard[k] && !currentBoard[k].owner && !currentBoard[k].isWall);
                   if (emptyTiles.length === 0) return showNotif("Non ci sono caselle libere da conquistare!");
-                  
                   const toClaim = emptyTiles.sort(() => 0.5 - Math.random()).slice(0, 2);
                   const updates = {};
                   toClaim.forEach(k => { currentBoard[k] = { ...currentBoard[k], owner: user.uid, item: null }; updates[`board.${k}`] = currentBoard[k]; });
                   updates[`players.${user.uid}.tiles`] = Object.values(currentBoard).filter(v => v?.owner === user.uid).length;
                   updates.globalAction = { msg: `🏳️ ${me?.n} usa Conquista e ottiene territori liberi!`, id: Date.now() };
-                  
                   await updateDoc(boardRef, updates); consumeItem(slotIdx); showNotif("Hai conquistato nuovi territori!");
               }
+              else if (itemId === 'teletrasporto') {
+                  setTargetAction(itemId); setUsingItemSlot(slotIdx); showNotif("Seleziona un bersaglio dalla classifica per teletrasportarti!");
+              }
               else if (itemId === 'curse' || itemId === 'terremoto' || itemId === 'stregoneria') {
-                  setTargetAction(itemId); setUsingItemSlot(slotIdx);
-                  showNotif(`Seleziona un bersaglio dalla classifica per ${ITEMS.find(i=>i.id===itemId)?.n || ''}`);
+                  setTargetAction(itemId); setUsingItemSlot(slotIdx); showNotif(`Seleziona un bersaglio dalla classifica per ${activeItems.find(i=>i.id===itemId)?.n || ''}`);
               } 
               else { showNotif("Non puoi usare questo oggetto ora."); }
           };
 
           const applyTargetItem = async (targetId) => {
               if (targetId === user.uid) return showNotif("Non puoi selezionare te stesso!");
-              const updates = {}; const targetName = room.players[targetId]?.n;
+              const updates = {}; const targetName = room.players[targetId]?.n; const targetPlayer = room.players[targetId];
               
-              if (targetAction === 'curse') {
+              if (targetAction === 'teletrasporto') {
+                  if (targetPlayer.isTrapped || targetPlayer.isEliminated || !targetPlayer.pos) return showNotif("Bersaglio non valido!");
+                  const [tx, ty] = targetPlayer.pos.split(',').map(Number);
+                  const adjs = [`${tx+1},${ty}`, `${tx-1},${ty}`, `${tx},${ty+1}`, `${tx},${ty-1}`];
+                  const validAdjs = adjs.filter(a => room.board[a] && !room.board[a].owner && !room.board[a].isWall);
+                  if (validAdjs.length > 0) {
+                      const tpDest = validAdjs[Math.floor(Math.random() * validAdjs.length)];
+                      updates[`board.${me.pos}.owner`] = null; updates[`board.${tpDest}.owner`] = user.uid; updates[`players.${user.uid}.pos`] = tpDest;
+                      updates.globalAction = { msg: `🌀 ${me.n} si è teletrasportato!`, id: Date.now() };
+                      await updateDoc(boardRef, updates); consumeItem(usingItemSlot); setTargetAction(null); showNotif("Teletrasporto completato!");
+                  } else { showNotif("Nessuno spazio vuoto vicino al bersaglio!"); }
+                  return;
+              }
+              else if (targetAction === 'curse') {
                   updates[`players.${targetId}.modifier`] = -2;
                   updates.globalAction = { msg: `💀 ${me?.n} usa Maledizione su ${targetName}!`, id: Date.now() };
                   consumeItem(usingItemSlot); showNotif(`Maledizione lanciata su ${targetName}!`);
@@ -1439,12 +1768,10 @@
                   let currentBoard = { ...(room.board || {}) };
                   const targetTiles = Object.keys(currentBoard).filter(k => currentBoard[k]?.owner === targetId && !currentBoard[k]?.isSpawn);
                   if (targetTiles.length === 0) { setTargetAction(null); return showNotif("Questo giocatore non ha più territori!"); }
-                  
                   const toDestroy = targetTiles.sort(() => 0.5 - Math.random()).slice(0, 2);
                   toDestroy.forEach(k => { currentBoard[k] = { ...currentBoard[k], owner: null, item: null }; updates[`board.${k}`] = currentBoard[k]; });
                   updates[`players.${targetId}.tiles`] = Object.values(currentBoard).filter(v => v?.owner === targetId).length;
                   updates.globalAction = { msg: `🌋 ${me?.n} scatena un Terremoto sui territori di ${targetName}!`, id: Date.now() };
-                  
                   consumeItem(usingItemSlot); showNotif(`Hai distrutto le caselle di ${targetName}!`);
               }
               else if (targetAction === 'stregoneria') {
@@ -1466,18 +1793,19 @@
           };
 
           const sourceForPlayable = room.currentEvent === 'tempesta' ? matchPlayerOrder[(matchPlayerOrder.indexOf(user.uid) + 1) % matchPlayerOrder.length] : user.uid;
-          const playableTiles = useMemo(() => isMyTurn && room.actionState === 'moving' && !isGameEnded ? getPlayableTiles(sourceForPlayable, room.board || {}, boardSize, room.config.invasionMode, user.uid) : [], [isMyTurn, room.actionState, room.board, boardSize, user.uid, isGameEnded, room.config.invasionMode, room.currentEvent, sourceForPlayable]);
+          const playableTiles = useMemo(() => isMyTurn && room.actionState === 'moving' && !isGameEnded ? getPlayableTiles(sourceForPlayable, room.board || {}, boardSize, room.config.invasionMode, user.uid, isModeInfezione, room.players, room.round, me.pos) : [], [isMyTurn, room.actionState, room.board, boardSize, user.uid, isGameEnded, room.config.invasionMode, room.currentEvent, sourceForPlayable, isModeInfezione, room.players, room.round, me?.pos]);
           
-          // Costruzione Leaderboard aggiornata per Eliminazione
           const leaderboard = matchPlayerOrder.map(id => room.players[id]).filter(Boolean).sort((a, b) => {
+              if (isModeInfezione) {
+                  if (!a.isInfected && b.isInfected) return -1;
+                  if (a.isInfected && !b.isInfected) return 1;
+                  if (a.isInfected && b.isInfected) return (room.eliminationRank?.indexOf(a.id) ?? -1) - (room.eliminationRank?.indexOf(b.id) ?? -1);
+                  return 0;
+              }
               if (room.config.mode === 'elimination') {
                   if (a.isEliminated && !b.isEliminated) return 1;
                   if (!a.isEliminated && b.isEliminated) return -1;
-                  if (a.isEliminated && b.isEliminated) {
-                      const rankA = room.eliminationRank?.indexOf(a.id) ?? -1;
-                      const rankB = room.eliminationRank?.indexOf(b.id) ?? -1;
-                      return rankA - rankB; 
-                  }
+                  if (a.isEliminated && b.isEliminated) return (room.eliminationRank?.indexOf(a.id) ?? -1) - (room.eliminationRank?.indexOf(b.id) ?? -1);
               }
               return (b.tiles||0) - (a.tiles||0);
           });
@@ -1501,7 +1829,7 @@
               {/* SCHERMATA RISULTATI */}
               {isGameEnded && showResultsModal && (
                   <div className="absolute inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-md">
-                      <div className="bg-slate-800 p-6 md:p-10 rounded-3xl border border-slate-600 shadow-2xl max-w-4xl w-full max-h-full overflow-y-auto flex flex-col items-center">
+                      <div className="bg-slate-800 p-6 md:p-10 rounded-3xl border border-slate-600 shadow-2xl max-w-4xl w-full max-h-full overflow-y-auto flex flex-col items-center custom-scrollbar">
                           <h1 className="text-4xl md:text-5xl font-black text-center mb-8 text-transparent bg-clip-text bg-gradient-to-r from-yellow-400 to-yellow-600">{isTournament ? 'RISULTATI DEL MATCH' : 'FINE PARTITA!'}</h1>
                           {isTournament ? (
                               <div className="flex flex-col md:flex-row gap-6 w-full">
@@ -1545,14 +1873,14 @@
                                       {leaderboard.map((p, idx) => {
                                           if(!p) return null;
                                           return (
-                                              <div key={p.id} className={`flex items-center gap-4 bg-slate-800 p-3 md:p-4 rounded-xl border-2 transition-all ${idx === 0 ? 'border-yellow-400 shadow-[0_0_20px_rgba(250,204,21,0.4)] scale-105' : 'border-slate-700'} ${p.isEliminated ? 'opacity-50 grayscale' : ''}`}>
+                                              <div key={p.id} className={`flex items-center gap-4 bg-slate-800 p-3 md:p-4 rounded-xl border-2 transition-all ${idx === 0 ? 'border-yellow-400 shadow-[0_0_20px_rgba(250,204,21,0.4)] scale-105' : 'border-slate-700'} ${p.isEliminated || p.isInfected ? 'opacity-50 grayscale' : ''}`}>
                                                   <div className={`font-black w-8 text-center ${idx === 0 ? 'text-yellow-400 text-3xl' : 'text-slate-500 text-xl'}`}>{idx+1}°</div>
                                                   <img src={CHARACTERS.find(c=>c.id===p.charId)?.i} className={`w-14 h-14 rounded-full object-cover shrink-0 ${idx === 0 ? 'border-4 border-yellow-400' : 'border-2 border-slate-600'}`} style={idx !== 0 ? {borderColor: p.color} : {}} />
                                                   <div className="flex-1 min-w-0 text-left">
                                                       <div className="font-bold truncate text-xl" style={{color: p.color}}>
-                                                          {p.n} {p.isEliminated && <span className="text-red-500 text-xs ml-2">☠️ ELIMINATO</span>}
+                                                          {p.n} {p.isEliminated && <span className="text-red-500 text-xs ml-2">☠️ ELIMINATO</span>} {p.isInfected && <span className="text-green-500 text-xs ml-2">🧟 INFETTO</span>}
                                                       </div>
-                                                      <div className="text-sm text-slate-400">{p.tiles} territori {p.isEliminated ? 'al momento della morte' : 'conquistati'}</div>
+                                                      <div className="text-sm text-slate-400">{isModeInfezione ? 'Sopravvivenza' : `${p.tiles} territori ${p.isEliminated ? 'alla morte' : 'conquistati'}`}</div>
                                                   </div>
                                                   {idx === 0 && <div className="text-4xl animate-bounce">🏆</div>}
                                               </div>
@@ -1561,11 +1889,10 @@
                                   </div>
                               </div>
                           )}
-                          <div className="mt-10 flex flex-col sm:flex-row justify-center items-center gap-4 w-full">
+                          <div className="mt-10 flex flex-col sm:flex-row justify-center items-center gap-4 w-full shrink-0">
                               <button onClick={() => setShowResultsModal(false)} className="w-full sm:w-auto px-6 py-3 rounded-xl font-bold bg-slate-700 hover:bg-slate-600 transition-colors border border-slate-500">👁️ Osserva Mappa Finale</button>
                               {isHost && ( <button onClick={() => isTournament ? handleTournamentMatchEnd(room, topPlayerIds) : updateDoc(boardRef, {status: 'lobby'})} className="w-full sm:w-auto px-8 py-3 rounded-xl font-black bg-orange-600 hover:bg-orange-500 transition-colors shadow-lg">{isTournament ? 'Ritorna al Tabellone Torneo' : 'Torna alla Lobby'}</button> )}
                               {!isHost && isTournament && <span className="text-slate-400 animate-pulse text-sm">In attesa dell'Host...</span>}
-                              {/* TASTO ESCI PER TUTTI I GIOCATORI NEI RISULTATI */}
                               <button onClick={onLeave} className="w-full sm:w-auto px-6 py-3 rounded-xl font-bold bg-red-900/50 hover:bg-red-800/60 text-red-200 transition-colors border border-red-500/30">🚪 Esci dalla Stanza</button>
                           </div>
                       </div>
@@ -1582,6 +1909,7 @@
                           <button onClick={onLeave} className="text-xs font-bold text-red-400 bg-red-950/30 px-2 py-1 rounded border border-red-500/30 hover:bg-red-900/50 transition-colors" title="Esci dalla stanza">🚪 Esci</button>
                           <div className="text-xl font-bold bg-slate-700 px-4 py-2 rounded-lg">{isGameEnded ? 'FINE PARTITA' : `Round ${room.round}/${room.config.maxRounds}`}</div>
                           {room.config.mode === 'tournament' && ( <div className="text-orange-400 font-bold bg-slate-900 px-3 py-1 rounded border border-orange-500/50 hidden sm:block">TORNEO</div> )}
+                          {isModeInfezione && ( <div className="text-green-400 font-bold bg-slate-900 px-3 py-1 rounded border border-green-500/50 hidden sm:block">INFEZIONE 🧟</div> )}
                       </div>
                       {room.config.mode === 'elimination' && !isGameEnded && (
                           <div className="text-[10px] sm:text-xs font-bold text-red-400 bg-red-950/50 px-2 py-0.5 rounded border border-red-500/30">
@@ -1603,7 +1931,10 @@
                                   <img src={c?.i} className={`w-14 h-14 rounded-full border-4 object-cover ${isActive ? 'animate-pulse shadow-[0_0_15px_currentColor]' : ''}`} style={{borderColor: p.color, color: p.color}} />
                                   {p.modifier !== 0 && <span className="absolute -top-2 -right-2 bg-slate-900 rounded-full w-6 h-6 flex items-center justify-center text-xs font-bold border border-slate-600">{p.modifier>0?'+'+p.modifier:p.modifier}</span>}
                                   {p.hasStregoneria && <span className="absolute -bottom-2 -left-2 bg-purple-900 rounded-full w-6 h-6 flex items-center justify-center text-xs font-bold border border-purple-500 shadow-[0_0_10px_purple]">🔮</span>}
-                                  {p.isEliminated && <span className="absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 text-2xl drop-shadow-md">☠️</span>}
+                                  {p.isEliminated && <span className="absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 text-2xl drop-shadow-md z-20 pointer-events-none">☠️</span>}
+                                  {isModeInfezione && p.isInfected && <span className="absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 text-2xl md:text-3xl drop-shadow-md z-20 pointer-events-none">🧟</span>}
+                                  {isModeInfezione && p.shieldUntil > room.round && <span className="absolute inset-0 border-[3px] border-blue-400 rounded-sm animate-pulse z-20 pointer-events-none"></span>}
+                                  {isModeInfezione && p.stunnedUntil > room.round && <span className="absolute -top-2 left-1/2 transform -translate-x-1/2 text-xl z-30 animate-spin pointer-events-none">💫</span>}
                               </div>
                           )
                       })}
@@ -1618,9 +1949,11 @@
                   <div className="flex-1 w-full h-full relative bg-slate-950 flex flex-col items-center justify-center p-2 md:p-6 overflow-hidden min-h-0 min-w-0">
                       
                       {targetAction !== null && !isGameEnded && (
-                          <div className="absolute inset-0 z-20 bg-black/50 flex flex-col items-center justify-center">
-                             <h2 className="text-3xl font-bold text-white animate-pulse text-center p-4">Seleziona il bersaglio in classifica! 👉</h2>
-                             <button onClick={() => setTargetAction(null)} className="mt-4 bg-slate-800 px-6 py-3 rounded-full font-bold border border-slate-500 hover:bg-slate-700">Annulla Mossa</button>
+                          <div className={`absolute inset-0 z-20 bg-black/50 flex flex-col items-center justify-center ${targetAction === 'builder' ? 'pointer-events-none' : ''}`}>
+                             <h2 className="text-3xl font-bold text-white animate-pulse text-center p-4">
+                                 {targetAction === 'builder' ? `Costruisci un muro (${usingItemSlot?.left} rimasti)! 👉` : 'Seleziona il bersaglio in classifica! 👉'}
+                             </h2>
+                             <button onClick={() => { setTargetAction(null); if(targetAction === 'builder') consumeItem(usingItemSlot?.slot); }} className="mt-4 bg-slate-800 px-6 py-3 rounded-full font-bold border border-slate-500 hover:bg-slate-700 pointer-events-auto">Annulla Mossa</button>
                           </div>
                       )}
 
@@ -1633,7 +1966,7 @@
                               const cell = room.board?.[key];
 
                               if (!cell) return <div key={key} className="bg-transparent" />;
-                              const isPlayable = playableTiles.includes(key);
+                              const isPlayable = playableTiles.includes(key) || (targetAction === 'builder' && !cell.owner && !cell.isWall);
                               const ownerPlayer = cell.owner ? room.players[cell.owner] : null;
                               
                               const isExploding = cell.explodedAt && (Date.now() - cell.explodedAt < 4000);
@@ -1644,10 +1977,14 @@
 
                               let cellStyle = { backgroundColor: ownerColor };
                               if (cell.owner && ownerCharImg) {
-                                  const overlayColor = ownerColor.length === 7 ? ownerColor + '99' : ownerColor;
-                                  cellStyle = { backgroundImage: `linear-gradient(${overlayColor}, ${overlayColor}), url(${ownerCharImg})`, backgroundSize: 'cover', backgroundPosition: 'center', boxShadow: `inset 0 0 0 1px rgba(0,0,0,0.3)` };
+                                  const isInfStyle = isModeInfezione && ownerPlayer.isInfected;
+                                  const overlayColor = isInfStyle ? '#22c55e99' : (ownerColor.length === 7 ? ownerColor + '99' : ownerColor);
+                                  cellStyle = { backgroundImage: `linear-gradient(${overlayColor}, ${overlayColor}), url(${ownerCharImg})`, backgroundSize: 'cover', backgroundPosition: 'center', boxShadow: isInfStyle ? 'inset 0 0 15px 5px #166534' : `inset 0 0 0 1px rgba(0,0,0,0.3)` };
                               }
-                              if (cell.isWall) { cellStyle = { backgroundColor: '#0f172a', backgroundImage: 'radial-gradient(#1e293b 10%, transparent 20%), radial-gradient(#1e293b 10%, transparent 20%)', backgroundSize: '10px 10px', backgroundPosition: '0 0, 5px 5px' }; }
+                              if (cell.isWall) { 
+                                  if (cell.wallExpiry) { cellStyle = { backgroundColor: '#78350f', backgroundImage: 'radial-gradient(#451a03 15%, transparent 16%), radial-gradient(#451a03 15%, transparent 16%)', backgroundSize: '20px 20px', backgroundPosition: '0 0, 10px 10px' }; } 
+                                  else { cellStyle = { backgroundColor: '#0f172a', backgroundImage: 'radial-gradient(#1e293b 10%, transparent 20%), radial-gradient(#1e293b 10%, transparent 20%)', backgroundSize: '10px 10px', backgroundPosition: '0 0, 5px 5px' }; }
+                              }
                               if (isExploding) { cellStyle.animationDelay = `${cell.explodeDelay || 0}ms`; }
 
                               return (
@@ -1658,12 +1995,17 @@
                                           ${!cell.owner && !isPlayable && !cell.isWall && !isExploding ? 'opacity-80 hover:opacity-100' : ''}
                                           ${cell.isWall ? 'border border-slate-900 shadow-inner' : ''}
                                           ${isExploding ? 'explode-anim' : ''}
+                                          ${targetAction === 'builder' ? 'pointer-events-auto' : ''}
                                       `}
                                       style={cellStyle}
                                   >
-                                      {cell.item && <span className={`${iconSizeClass} drop-shadow-[0_2px_2px_rgba(0,0,0,0.8)] z-0 pointer-events-none`}>{ITEMS.find(i => i.id === cell.item)?.icon}</span>}
-                                      {cell.isSpawn && <span className="absolute bottom-0.5 right-0.5 text-[10px] md:text-sm opacity-80 drop-shadow-[0_1px_1px_rgba(0,0,0,0.8)] pointer-events-none">🏠</span>}
-                                      {cell.isWall && <span className={`${iconSizeClass} opacity-50 drop-shadow-md pointer-events-none`}>☄️</span>}
+                                      {cell.item && <span className={`${iconSizeClass} drop-shadow-[0_2px_2px_rgba(0,0,0,0.8)] z-0 pointer-events-none`}>{activeItems.find(i => i.id === cell.item)?.icon}</span>}
+                                      {cell.isSpawn && !isModeInfezione && <span className="absolute bottom-0.5 right-0.5 text-[10px] md:text-sm opacity-80 drop-shadow-[0_1px_1px_rgba(0,0,0,0.8)] pointer-events-none">🏠</span>}
+                                      {cell.isWall && !cell.wallExpiry && <span className={`${iconSizeClass} opacity-50 drop-shadow-md pointer-events-none`}>☄️</span>}
+                                      {cell.isWall && cell.wallExpiry && <span className={`${iconSizeClass} opacity-80 drop-shadow-md pointer-events-none`}>🧱</span>}
+                                      {isModeInfezione && ownerPlayer?.shieldUntil > room.round && <span className="absolute inset-0 border-[3px] border-blue-400 rounded-sm animate-pulse z-20 pointer-events-none"></span>}
+                                      {isModeInfezione && ownerPlayer?.stunnedUntil > room.round && <span className="absolute -top-2 left-1/2 transform -translate-x-1/2 text-xl z-30 animate-spin pointer-events-none">💫</span>}
+                                      {isModeInfezione && ownerPlayer?.isInfected && <span className="absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 text-2xl md:text-3xl drop-shadow-md z-20 pointer-events-none">🧟</span>}
                                       {isPlayable && <div className="absolute inset-0 bg-white/20 rounded-sm hover:bg-white/40 pointer-events-none"></div>}
                                   </div>
                               );
@@ -1682,7 +2024,7 @@
                           {leaderboard.map((p, idx) => {
                               if(!p) return null;
                               const c = CHARACTERS.find(x => x.id === p.charId);
-                              const isTargetable = targetAction !== null && p.id !== user.uid && !p.isTrapped && !p.isEliminated;
+                              const isTargetable = targetAction !== null && targetAction !== 'builder' && p.id !== user.uid && !p.isTrapped && !p.isEliminated;
                               const isEliminated = (isGameEnded && idx >= winnersCount) || p.isEliminated;
                               
                               return (
@@ -1699,13 +2041,15 @@
                                       <img src={c?.i} className="w-10 h-10 rounded object-cover mx-2 border border-slate-600" />
                                       <div className="flex-1 min-w-0">
                                           <div className="font-bold text-sm truncate" style={{color: p.color}}>
-                                              {p.n} {p.isEliminated && <span className="text-red-500 text-xs ml-1">☠️</span>}
+                                              {p.n} 
+                                              {p.isEliminated && <span className="text-red-500 text-xs ml-1">☠️</span>}
+                                              {isModeInfezione && p.isInfected && <span className="text-green-500 text-xs ml-1">🧟</span>}
                                           </div>
-                                          <div className="text-xs text-slate-300">{p.tiles} caselle</div>
+                                          <div className="text-xs text-slate-300">{isModeInfezione ? 'Sopravvivenza' : `${p.tiles} caselle`}</div>
                                       </div>
                                       <div className="flex gap-1 ml-1">
                                           {p.inventory?.map((itemId, i) => {
-                                              const it = ITEMS.find(x => x.id === itemId);
+                                              const it = activeItems.find(x => x.id === itemId);
                                               if(!it) return null;
                                               return (<span key={i} className="text-sm bg-slate-800 rounded p-0.5" title={it.n}>{it.icon}</span>)
                                           })}
@@ -1741,7 +2085,7 @@
                                           <div className="text-xs text-slate-400 mb-2">Inventario (Max 2)</div>
                                           <div className="flex gap-2">
                                               {[0, 1].map(slot => {
-                                                  const itemId = me?.inventory?.[slot]; const item = itemId ? ITEMS.find(i => i.id === itemId) : null;
+                                                  const itemId = me?.inventory?.[slot]; const item = itemId ? activeItems.find(i => i.id === itemId) : null;
                                                   return (
                                                       <button 
                                                           key={slot}
