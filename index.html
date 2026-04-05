@@ -543,8 +543,8 @@
                   </div>
                 </div>
               ) : room.status === 'lobby' ? ( <Lobby room={room} user={user} onLeave={leaveRoom} showNotif={showNotif} />
-              ) : room.status === 'tournament_bracket' ? ( <TournamentBracket room={room} user={user} showNotif={showNotif} />
-              ) : ( <Game room={room} user={user} showNotif={showNotif} /> )}
+              ) : room.status === 'tournament_bracket' ? ( <TournamentBracket room={room} user={user} showNotif={showNotif} onLeave={leaveRoom} />
+              ) : ( <Game room={room} user={user} showNotif={showNotif} onLeave={leaveRoom} /> )}
             </div>
           );
         }
@@ -655,7 +655,7 @@
                 <div className="bg-slate-800 p-6 rounded-2xl border border-slate-700 shrink-0">
                   <div className="flex justify-between items-center mb-4">
                     <h2 className="text-xl font-bold text-white">Stanza: <span className="text-indigo-400 select-all">{room.id}</span></h2>
-                    <button onClick={onLeave} className="text-red-400 hover:text-red-300 text-sm">Esci</button>
+                    <button onClick={onLeave} className="text-red-400 hover:text-red-300 text-sm font-bold">Esci</button>
                   </div>
                   
                   {isHost ? (
@@ -796,7 +796,7 @@
         }
 
         // --- TOURNAMENT BRACKET VIEW ---
-        function TournamentBracket({ room, user, showNotif }) {
+        function TournamentBracket({ room, user, showNotif, onLeave }) {
             const isHost = room.hostId === user.uid;
             const { phases, currentPhase, currentMatch } = room.tournament;
             
@@ -854,6 +854,7 @@
                               </div>
                           </div>
                           {isHost && ( <button onClick={() => updateDoc(doc(getCollectionRef(), room.id), {status: 'lobby'})} className="mt-8 bg-indigo-600 px-10 py-4 rounded-xl font-black text-xl hover:bg-indigo-500 hover:scale-105 transition-all shrink-0">Torna alla Lobby</button> )}
+                          <button onClick={onLeave} className="mt-6 text-slate-400 hover:text-red-400 transition-colors underline font-bold">Esci al Menù Principale</button>
                       </div>
                   </div>
                 );
@@ -909,7 +910,8 @@
 
             return (
                 <div className="h-[100dvh] bg-slate-950 text-slate-100 flex flex-col p-4 md:p-8 overflow-hidden">
-                    <div className="shrink-0 mb-4 md:mb-6 text-center">
+                    <div className="shrink-0 mb-4 md:mb-6 text-center relative">
+                        <button onClick={onLeave} className="absolute left-0 top-0 md:top-2 text-xs font-bold text-red-400 bg-red-950/30 px-3 py-2 rounded border border-red-500/30 hover:bg-red-900/50 transition-colors" title="Esci dalla stanza">🚪 Esci</button>
                         <h1 className="text-3xl md:text-4xl font-black text-orange-500 tracking-wider">TABELLONE TORNEO</h1>
                         <p className="text-slate-400 text-sm md:text-base">Tutti i match e le fasi della competizione</p>
                     </div>
@@ -986,7 +988,7 @@
         }
 
         // --- GIOCO PRINCIPALE ---
-        function Game({ room, user, showNotif }) {
+        function Game({ room, user, showNotif, onLeave }) {
           const isHost = room.hostId === user.uid;
           const matchPlayerOrder = (room.status.includes('match') ? room.currentMatchPlayers : room.playerOrder) || [];
           const boardSize = room.status.includes('match') ? (room.currentMatchSize || room.config.size) : room.config.size;
@@ -1563,6 +1565,8 @@
                               <button onClick={() => setShowResultsModal(false)} className="w-full sm:w-auto px-6 py-3 rounded-xl font-bold bg-slate-700 hover:bg-slate-600 transition-colors border border-slate-500">👁️ Osserva Mappa Finale</button>
                               {isHost && ( <button onClick={() => isTournament ? handleTournamentMatchEnd(room, topPlayerIds) : updateDoc(boardRef, {status: 'lobby'})} className="w-full sm:w-auto px-8 py-3 rounded-xl font-black bg-orange-600 hover:bg-orange-500 transition-colors shadow-lg">{isTournament ? 'Ritorna al Tabellone Torneo' : 'Torna alla Lobby'}</button> )}
                               {!isHost && isTournament && <span className="text-slate-400 animate-pulse text-sm">In attesa dell'Host...</span>}
+                              {/* TASTO ESCI PER TUTTI I GIOCATORI NEI RISULTATI */}
+                              <button onClick={onLeave} className="w-full sm:w-auto px-6 py-3 rounded-xl font-bold bg-red-900/50 hover:bg-red-800/60 text-red-200 transition-colors border border-red-500/30">🚪 Esci dalla Stanza</button>
                           </div>
                       </div>
                   </div>
@@ -1574,7 +1578,8 @@
 
               <div className="bg-slate-800 p-3 shadow-md flex justify-between items-center z-10 border-b border-slate-700 shrink-0">
                   <div className="flex flex-col items-start gap-1">
-                      <div className="flex items-center gap-4">
+                      <div className="flex items-center gap-2 sm:gap-4">
+                          <button onClick={onLeave} className="text-xs font-bold text-red-400 bg-red-950/30 px-2 py-1 rounded border border-red-500/30 hover:bg-red-900/50 transition-colors" title="Esci dalla stanza">🚪 Esci</button>
                           <div className="text-xl font-bold bg-slate-700 px-4 py-2 rounded-lg">{isGameEnded ? 'FINE PARTITA' : `Round ${room.round}/${room.config.maxRounds}`}</div>
                           {room.config.mode === 'tournament' && ( <div className="text-orange-400 font-bold bg-slate-900 px-3 py-1 rounded border border-orange-500/50 hidden sm:block">TORNEO</div> )}
                       </div>
