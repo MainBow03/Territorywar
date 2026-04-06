@@ -289,6 +289,20 @@
                 const dist = Math.abs(x - center) + Math.abs(y - center);
                 valid = dist <= size / 2 + 0.5;
               }
+              if (shape === 'simpatica') {
+                  const cx = Math.floor((size - 1) / 2);
+                  const shaftW = Math.max(1, Math.floor(size / 6));
+                  const ballR = Math.max(2, Math.floor(size / 4.5));
+                  const shaftBottom = Math.floor(size * 0.75);
+                  const shaftTop = Math.floor(size * 0.15);
+
+                  const isShaft = Math.abs(x - cx) <= shaftW && y >= shaftTop && y <= shaftBottom;
+                  const isLeftBall = Math.pow(x - (cx - shaftW - 1), 2) + Math.pow(y - shaftBottom, 2) <= Math.pow(ballR, 2);
+                  const isRightBall = Math.pow(x - (cx + shaftW + 1), 2) + Math.pow(y - shaftBottom, 2) <= Math.pow(ballR, 2);
+                  const isTip = Math.pow(x - cx, 2) + Math.pow(y - shaftTop, 2) <= Math.pow(shaftW + 1, 2);
+
+                  valid = isShaft || isLeftBall || isRightBall || isTip;
+              }
               if (valid) {
                   const key = `${x},${y}`;
                   board[key] = { owner: null, item: null, isWall: false, isSpawn: false };
@@ -299,7 +313,7 @@
           
           let numItemsToSpawn = 0;
           if (isModeInfezione) {
-              numItemsToSpawn = Math.min(numPlayers <= 4 ? 3 : (numPlayers <= 8 ? 7 : 15), validTiles.length);
+              numItemsToSpawn = Math.min(numPlayers <= 4 ? 5 : (numPlayers <= 8 ? 10 : 15), validTiles.length);
           } else {
               numItemsToSpawn = Math.floor(validTiles.length * 0.08);
           }
@@ -880,7 +894,7 @@
                       <div>
                         <label className="block text-sm text-slate-400 mb-1">Mappa</label>
                         <select value={room.config.shape} onChange={(e) => updateConfig('shape', e.target.value)} className="w-full bg-slate-700 rounded p-2 text-white">
-                          <option value="square">Quadrato</option><option value="circle">Cerchio</option><option value="diamond">Rombo</option>
+                          <option value="square">Quadrato</option><option value="circle">Cerchio</option><option value="diamond">Rombo</option><option value="simpatica">Speciale Infezione 🍆</option>
                         </select>
                       </div>
                       <div>
@@ -1610,7 +1624,7 @@
              // SPAWN STRUMENTI (6% infezione, 8% normal, 15% elim)
              if (isHost && !updates.globalAction) {
                  const pCount = matchPlayerOrder.length;
-                 const maxAllowed = isModeInfezione ? (pCount <= 4 ? 3 : (pCount <= 8 ? 7 : 15)) : 99;
+                 const maxAllowed = isModeInfezione ? (pCount <= 4 ? 5 : (pCount <= 8 ? 10 : 15)) : 99;
                  const currItems = Object.values(currentBoard).filter(c => c.item).length;
                  const spRate = isModeInfezione ? 0.06 : (room.config.mode === 'elimination' ? 0.15 : 0.08);
 
