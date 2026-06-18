@@ -458,8 +458,9 @@
             const phases = [];
             let currentSize = totalPlayers;
             
-            while (currentSize > 4) {
-                let matchSize = currentSize >= 32 ? 8 : 4;
+            // Scontri da 8 giocatori in cui i primi 4 passano al turno successivo
+            while (currentSize > 8) {
+                let matchSize = 8;
                 let numMatches = currentSize / matchSize;
                 
                 const matches = [];
@@ -469,11 +470,11 @@
                 
                 phases.push({ name: `Top ${currentSize}`, matches, matchSize });
                 
-                currentSize = numMatches * (matchSize / 2); 
+                currentSize = numMatches * 4; 
             }
             
-            phases.push({ name: "Top 4", matches: [{ players: [], completed: false, winners: [] }], matchSize: 4 });
-            phases.push({ name: "Finalissima", matches: [{ players: [], completed: false, winners: [] }], matchSize: 2 });
+            // Finalissima a 8 giocatori (o meno se il totale configurato era inferiore a 8)
+            phases.push({ name: "Finalissima", matches: [{ players: [], completed: false, winners: [] }], matchSize: Math.min(8, totalPlayers) });
             return phases;
         };
 
@@ -977,7 +978,7 @@
                               <div>
                                 <label className="block text-sm text-slate-400 mb-1">Partecipanti Torneo</label>
                                 <select value={room.config.tournamentSize} onChange={(e) => updateConfig('tournamentSize', parseInt(e.target.value))} className="w-full bg-slate-700 rounded p-2 text-white font-bold mb-2">
-                                  <option value="8">8 Giocatori</option><option value="16">16 Giocatori</option><option value="32">32 Giocatori</option><option value="64">64 Giocatori</option>
+                                  <option value="8">8 Giocatori</option><option value="16">16 Giocatori</option><option value="32">32 Giocatori</option><option value="64">64 Giocatori</option><option value="128">128 Giocatori 🏆</option>
                                 </select>
                               </div>
                               <div>
@@ -1112,6 +1113,7 @@
         function TournamentBracket({ room, user, showNotif, onLeave }) {
             const isHost = room.hostId === user.uid;
             const { phases, currentPhase, currentMatch } = room.tournament;
+            const [zoom, setZoom] = React.useState(room.config.tournamentSize >= 128 ? 0.75 : 1);
             
             if (currentPhase >= phases.length) {
                 const finalPhase = phases[phases.length - 1];
@@ -1275,29 +1277,110 @@
                         </div>
                     </div>
 
-                    <div className="flex-1 bg-slate-800 rounded-3xl border border-slate-700 p-4 md:p-6 overflow-auto custom-scrollbar">
-                        <div className="flex gap-10 min-w-max min-h-full items-stretch">
-                            {phases.map((ph, pIdx) => (
-                                <div key={pIdx} className="flex flex-col w-[260px] relative">
-                                    <div className="text-center font-black text-slate-500 uppercase tracking-widest border-b-2 border-slate-700 pb-2 mb-4 shrink-0">{ph.name}</div>
-                                    <div className="flex flex-col justify-around flex-1 gap-4">
-                                        {ph.matches.map((m, mIdx) => {
-                                            const isCurrentMatch = pIdx === currentPhase && mIdx === currentMatch;
-                                            const isPastMatch = m.completed;
-                                            const isFutureMatch = pIdx > currentPhase || (pIdx === currentPhase && mIdx > currentMatch);
+                    <div className="flex-1 bg-slate-800 rounded-3xl border border-slate-700 p-4 md:p-6 flex flex-col overflow-hidden">
+                        {/* Controlli di ridimensionamento dinamico (Zoom) per Tornei grandi */}
+                        <div className="flex items-center justify-end gap-2 mb-4 shrink-0 bg-slate-900/40 p-2 rounded-xl border border-slate-700/50 max-w-max ml-auto">
+                            <span className="text-xs text-slate-400 font-bold mr-2">Zoom Bracket:</span>
+                            <button onClick={() => setZoom(z => Math.max(0.4, z - 0.1))} className="bg-slate-700 hover:bg-slate-600 w-8 h-8 rounded-lg font-bold flex items-center justify-center text-lg">-</button>
+                            <span className="text-sm font-black text-orange-400 w-12 text-center">{Math.round(zoom * 100)}%</span>
+                            <button onClick={() => setZoom(z => Math.min(1.5, z + 0.1))} className="bg-slate-700 hover:bg-slate-600 w-8 h-8 rounded-lg font-bold flex items-center justify-center text-lg">+</button>
+                            <button onClick={() => setZoom(room.config.tournamentSize >= 128 ? 0.75 : 1)} className="text-[10px] bg-slate-850 hover:bg-slate-700 px-2.5 py-1.5 rounded ml-2 font-bold transition-colors">Reset</button>
+                        </div>
+                        <div className="flex-1 overflow-auto custom-scrollbar">
+                            {(() => {
+                                const firstPhase = phases[0];
+                                const baseSlotHeight = Math.max(160, 32 + (firstPhase.matchSize * 36) + 36);
+                                const totalBracketHeight = baseSlotHeight * firstPhase.matches.length;
+                                return (
+                                    <div 
+                                        className="flex gap-10 min-w-max transition-transform duration-200"
+                                        style={{ 
+                                            transform: `scale(${zoom})`, 
+                                            transformOrigin: 'top left', 
+                                            height: `${totalBracketHeight * zoom}px`, 
+                                            minHeight: '100%',
+                                            width: 'max-content' 
+                                        }}
+                                    >
+                                        {phases.map((ph, pIdx) => {
+                                            const currentSlotHeight = baseSlotHeight * Math.pow(2, pIdx);
                                             return (
-                                                <div key={mIdx} className={`relative bg-slate-900 rounded-xl p-3 border-2 transition-all shrink-0 ${isCurrentMatch ? 'border-orange-500 shadow-[0_0_15px_rgba(249,115,22,0.5)] scale-105 z-10' : ''} ${isPastMatch ? 'border-emerald-600/50 opacity-70' : ''} ${isFutureMatch ? 'border-slate-700/50' : ''}`}>
-                                                    {pIdx > 0 && <div className="absolute top-1/2 -left-5 w-5 border-t-2 border-slate-600 -z-10"></div>}
-                                                    {pIdx < phases.length - 1 && <div className="absolute top-1/2 -right-5 w-5 border-t-2 border-slate-600 -z-10"></div>}
-                                                    <div className="text-xs text-slate-500 mb-2 font-bold">Match {mIdx + 1}</div>
-                                                    <div className="flex flex-col gap-1.5">
-                                                        {Array.from({length: ph.matchSize}).map((_, slotIdx) => {
-                                                            const pid = m.players[slotIdx]; const player = pid ? room.players[pid] : null; const char = player ? CHARACTERS.find(c => c.id === player.charId) : null;
-                                                            const isWinner = m.winners?.includes(pid); const isEliminated = m.completed && !isWinner;
+                                                <div key={pIdx} className={`flex flex-col relative transition-all duration-300 ${room.config.tournamentSize >= 128 ? 'w-[320px]' : 'w-[260px]'}`}>
+                                                    <div className="text-center font-black text-slate-500 uppercase tracking-widest border-b-2 border-slate-700 pb-2 mb-4 shrink-0">{ph.name}</div>
+                                                    <div className="relative flex-1" style={{ height: `${totalBracketHeight}px` }}>
+                                                        {ph.matches.map((m, mIdx) => {
+                                                            const isCurrentMatch = pIdx === currentPhase && mIdx === currentMatch;
+                                                            const isPastMatch = m.completed;
+                                                            const isFutureMatch = pIdx > currentPhase || (pIdx === currentPhase && mIdx > currentMatch);
                                                             return (
-                                                                <div key={slotIdx} className={`flex items-center gap-2 px-2 py-1 rounded bg-slate-800 ${isEliminated ? 'opacity-40 grayscale line-through' : ''} ${isWinner ? 'bg-emerald-900/40 ring-1 ring-emerald-500/50' : ''}`}>
-                                                                    {player ? ( <><img src={char?.i} className="w-6 h-6 rounded-full object-cover shrink-0 border" style={{borderColor: player.color}} /><span className="text-sm font-bold truncate" style={{color: isEliminated ? '#94a3b8' : player.color}}>{player.n}</span></>
-                                                                    ) : ( <span className="text-sm text-slate-600 italic px-8">TBD</span> )}
+                                                                <div 
+                                                                    key={mIdx} 
+                                                                    className="absolute left-0 w-full flex items-center justify-center pointer-events-none"
+                                                                    style={{ 
+                                                                        top: `${mIdx * currentSlotHeight}px`, 
+                                                                        height: `${currentSlotHeight}px` 
+                                                                    }}
+                                                                >
+                                                                    <div className="w-full relative px-2 pointer-events-auto">
+                                                                        {}
+                                                                        {/* Linea orizzontale in uscita a destra verso il turno successivo */}
+                                                                        {pIdx < phases.length - 1 && (
+                                                                            <div 
+                                                                                className="absolute border-t-2 border-slate-600 pointer-events-none" 
+                                                                                style={{ 
+                                                                                    right: '-20px', 
+                                                                                    top: '50%', 
+                                                                                    width: '20px',
+                                                                                    zIndex: 0
+                                                                                }} 
+                                                                            />
+                                                                        )}
+                                                                        {/* Linea verticale a destra per unire i due rami dello scontro */}
+                                                                        {pIdx < phases.length - 1 && (
+                                                                            <div 
+                                                                                className="absolute border-r-2 border-slate-600 pointer-events-none" 
+                                                                                style={{ 
+                                                                                    right: '-20px', 
+                                                                                    top: mIdx % 2 === 0 ? '50%' : 'auto', 
+                                                                                    bottom: mIdx % 2 !== 0 ? '50%' : 'auto', 
+                                                                                    height: `${currentSlotHeight / 2}px`,
+                                                                                    zIndex: 0
+                                                                                }} 
+                                                                            />
+                                                                        )}
+                                                                        {/* Linea orizzontale in ingresso a sinistra dal turno precedente */}
+                                                                        {pIdx > 0 && (
+                                                                            <div 
+                                                                                className="absolute border-t-2 border-slate-600 pointer-events-none" 
+                                                                                style={{ 
+                                                                                    left: '-20px', 
+                                                                                    top: '50%', 
+                                                                                    width: '20px',
+                                                                                    zIndex: 0
+                                                                                }} 
+                                                                            />
+                                                                        )}
+
+                                                                        {/* Match Card del Torneo */}
+                                                                        <div className={`relative bg-slate-900 rounded-xl p-3 border-2 transition-all ${isCurrentMatch ? 'border-orange-500 shadow-[0_0_15px_rgba(249,115,22,0.5)] scale-105 z-10' : ''} ${isPastMatch ? 'border-emerald-600/50 opacity-70' : ''} ${isFutureMatch ? 'border-slate-700/50' : ''}`}>
+                                                                            <div className="text-xs text-slate-500 mb-2 font-bold flex justify-between items-center">
+                                                                                <span>Match {mIdx + 1}</span>
+                                                                                {isCurrentMatch && <span className="text-[9px] bg-orange-600 text-white px-1 py-0.5 rounded font-black tracking-wider animate-pulse">Live</span>}
+                                                                            </div>
+                                                                            <div className="flex flex-col gap-1.5">
+                                                                                {Array.from({length: ph.matchSize}).map((_, slotIdx) => {
+                                                                                    const pid = m.players[slotIdx]; const player = pid ? room.players[pid] : null; const char = player ? CHARACTERS.find(c => c.id === player.charId) : null;
+                                                                                    const isWinner = m.winners?.includes(pid); const isEliminated = m.completed && !isWinner;
+                                                                                    return (
+                                                                                        <div key={slotIdx} className={`flex items-center gap-2 px-2 py-1 rounded bg-slate-800 ${isEliminated ? 'opacity-40 grayscale line-through' : ''} ${isWinner ? 'bg-emerald-900/40 ring-1 ring-emerald-500/50' : ''}`}>
+                                                                                            {player ? ( <><img src={char?.i} className="w-6 h-6 rounded-full object-cover shrink-0 border" style={{borderColor: player.color}} /><span className="text-sm font-bold truncate" style={{color: isEliminated ? '#94a3b8' : player.color}}>{player.n}</span></>
+                                                                                            ) : ( <span className="text-sm text-slate-600 italic px-8">TBD</span> )}
+                                                                                        </div>
+                                                                                    );
+                                                                                })}
+                                                                            </div>
+                                                                        </div>
+                                                                    </div>
                                                                 </div>
                                                             );
                                                         })}
@@ -1306,8 +1389,8 @@
                                             );
                                         })}
                                     </div>
-                                </div>
-                            ))}
+                                );
+                            })()}
                         </div>
                     </div>
                 </div>
