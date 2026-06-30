@@ -2572,7 +2572,12 @@
 
                       {!isGameEnded && (
                           <div className="p-4 bg-slate-900 border-t border-slate-700 shrink-0">
-                              <h4 className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-2">Pannello Controllo</h4>
+                              <div className="flex justify-between items-center mb-2">
+                                  <h4 className="text-xs font-bold text-slate-400 uppercase tracking-wider">Pannello Controllo</h4>
+                                  {isHost && (
+                                      <button onClick={() => { initAudio(); setTargetAction(null); nextTurn(); }} className="text-[10px] bg-red-900/80 hover:bg-red-800 text-red-200 px-2 py-1 rounded border border-red-500/50 transition-colors shadow-sm" title="Forza il salto del turno se il gioco si blocca">⏭️ Forza Skip</button>
+                                  )}
+                              </div>
                               
                               {!isPlayingThisMatch ? ( <div className="text-center py-4 text-slate-400 italic bg-slate-800 rounded-xl">Spettatore 🍿</div>
                               ) : me?.isEliminated ? ( <div className="text-center py-4 text-red-500 font-bold bg-red-950/30 rounded-xl border border-red-500/50">Sei stato eliminato. ☠️</div>
