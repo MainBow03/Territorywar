@@ -1418,6 +1418,7 @@
 
           const [targetAction, setTargetAction] = useState(null);
           const [usingItemSlot, setUsingItemSlot] = useState(null);
+          const [timeLeft, setTimeLeft] = useState(30);
           
           const isGameEnded = room.status === 'finished' || room.status === 'match_finished';
           const [showResultsModal, setShowResultsModal] = useState(true);
@@ -1435,6 +1436,25 @@
                   showNotif(room.lastAction.msg);
               }
           }, [room?.lastAction]);
+
+          useEffect(() => {
+              setTimeLeft(30);
+              setTargetAction(null);
+              setUsingItemSlot(null);
+          }, [room?.turnIndex, room?.round, room?.actionState, activePlayerId]);
+
+          useEffect(() => {
+              if (isGameEnded || !activePlayerId || activePlayer?.isBot || timeLeft <= 0) return;
+              const timer = setTimeout(() => setTimeLeft(prev => prev - 1), 1000);
+              return () => clearTimeout(timer);
+          }, [timeLeft, isGameEnded, activePlayerId, activePlayer?.isBot]);
+
+          useEffect(() => {
+              if (timeLeft === 0 && isHost && !isGameEnded && !activePlayer?.isBot) {
+                  updateDoc(boardRef, { lastAction: { msg: `⏳ Tempo scaduto per ${activePlayer?.n}! Turno saltato.`, id: Date.now() } });
+                  nextTurn();
+              }
+          }, [timeLeft, isHost, isGameEnded, activePlayer?.isBot]);
 
           // --- BOT LOGIC ---
           useEffect(() => {
@@ -2431,12 +2451,7 @@
                           return (
                               <div key={pid} className={`relative transition-all duration-300 ${isActive ? 'transform scale-110 z-10' : 'opacity-60 scale-90'} ${p.isEliminated ? 'grayscale opacity-20' : ''}`}>
                                   <img src={c?.i} className={`w-14 h-14 rounded-full border-4 object-cover ${isActive ? 'animate-pulse shadow-[0_0_15px_currentColor]' : ''}`} style={{borderColor: p.color, color: p.color}} />
-                                  {p.modifier !== 0 && <span className="absolute -top-2 -right-2 bg-slate-900 rounded-full w-6 h-6 flex items-center justify-center text-xs font-bold border border-slate-600">{p.modifier>0?'+'+p.modifier:p.modifier}</span>}
-                                  {p.hasStregoneria && <span className="absolute -bottom-2 -left-2 bg-purple-900 rounded-full w-6 h-6 flex items-center justify-center text-xs font-bold border border-purple-500 shadow-[0_0_10px_purple]">🔮</span>}
-                                  {p.isEliminated && <span className="absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 text-2xl drop-shadow-md z-20 pointer-events-none">☠️</span>}
-                                  {isModeInfezione && p.isInfected && <span className="absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 text-2xl md:text-3xl drop-shadow-md z-20 pointer-events-none">🧟</span>}
-                                  {isModeInfezione && p.shieldUntil > room.round && <span className="absolute inset-0 border-[3px] border-blue-400 rounded-sm animate-pulse z-20 pointer-events-none"></span>}
-                                  {isModeInfezione && p.stunnedUntil > room.round && <span className="absolute -top-2 left-1/2 transform -translate-x-1/2 text-xl z-30 animate-spin pointer-events-none">💫</span>}
+                                      {isModeInfezione && p.stunnedUntil > room.round && <span className="absolute -top-2 left-1/2 transform -translate-x-1/2 text-xl z-30 animate-spin pointer-events-none">💫</span>}
                               </div>
                           )
                       })}
@@ -2444,6 +2459,11 @@
                   <div className="text-right flex flex-col items-end">
                      <span className="text-sm text-slate-400">{isGameEnded ? 'Vincitore:' : 'Tocca a:'}</span>
                      <span className="text-xl font-black" style={{color: isGameEnded ? leaderboard[0]?.color : activePlayer?.color}}>{isGameEnded ? leaderboard[0]?.n : `${activePlayer?.n || ''} ${activePlayer?.isBot ? '(BOT)' : ''}`}</span>
+                     {!isGameEnded && !activePlayer?.isBot && (
+                         <div className={`text-xs font-black mt-0.5 px-2 py-0.5 rounded-full bg-slate-900 border ${timeLeft <= 10 ? 'text-red-500 border-red-500/50 animate-pulse shadow-[0_0_10px_rgba(239,68,68,0.5)]' : 'text-slate-300 border-slate-600'}`}>
+                             ⏱️ {timeLeft}s
+                         </div>
+                     )}
                   </div>
               </div>
 
